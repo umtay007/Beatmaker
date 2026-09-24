@@ -161,13 +161,12 @@ export class Actions {
 
   saveProject(): void {
     const data = { format: 'beatmaker', version: 1, song: this.store.song, visual: this.store.visual };
-    downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${safeName(this.store.song.name)}.beatmaker.json`);
+    void downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${safeName(this.store.song.name)}.beatmaker.json`);
   }
 
   exportMidi(): void {
     const bytes = songToMidi(this.store.song);
-    downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeName(this.store.song.name)}.mid`);
-    toast('MIDI exported', 'ok');
+    void downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeName(this.store.song.name)}.mid`).then((ok) => ok && toast('MIDI exported', 'ok'));
   }
 
   async exportWav(): Promise<void> {
@@ -183,8 +182,8 @@ export class Actions {
     const m = modal('Export WAV', body, { closable: false });
     try {
       const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer, backingVolume: this.engine.backingVolume });
-      downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`);
-      toast('WAV exported', 'ok');
+      m.close();
+      if (await downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`)) toast('WAV exported', 'ok');
     } catch (e) {
       toast(`Render failed: ${(e as Error).message}`, 'error', 4000);
     } finally {
@@ -220,8 +219,8 @@ export class Actions {
     try {
       const res = await job.done;
       if (res) {
-        downloadBlob(res.blob, `${safeName(this.store.song.name)}.${res.ext}`);
-        toast(`Video exported (${(res.blob.size / 1e6).toFixed(1)} MB)`, 'ok', 4000);
+        m.close();
+        if (await downloadBlob(res.blob, `${safeName(this.store.song.name)}.${res.ext}`)) toast(`Video exported (${(res.blob.size / 1e6).toFixed(1)} MB)`, 'ok', 4000);
       } else toast('Export cancelled');
     } catch (e) {
       toast(`Export failed: ${(e as Error).message}`, 'error', 5000);

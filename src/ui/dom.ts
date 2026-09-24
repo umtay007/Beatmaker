@@ -1,3 +1,5 @@
+import { zipFiles } from './zip';
+
 type Child = Node | string | number | null | undefined | false;
 type Attrs = Record<string, unknown>;
 
@@ -73,7 +75,48 @@ export function icon(name: string, size = 18): SVGSVGElement {
   return wrap.firstElementChild as SVGSVGElement;
 }
 
-export function downloadBlob(blob: Blob, name: string): void {
+interface HostDownloads {
+  save(req: { filename: string; data: Blob }): Promise<{ status: string }>;
+}
+interface HostRuntime {
+  use(name: string): Promise<unknown>;
+}
+
+/** File types the embedded viewer (claude.ai artifact host) accepts for saves. */
+const HOST_EXTENSIONS = new Set(['gif', 'png', 'jpg', 'jpeg', 'webp', 'mp4', 'webm', 'txt', 'json', 'md', 'csv', 'svg', 'pdf', 'zip', 'html']);
+
+/**
+ * Save a generated file. In a normal browser tab this is a plain download; when the app runs
+ * inside a host that exposes a `downloads` runtime (e.g. a claude.ai artifact), the save goes
+ * through it, zipping file types the host does not accept. Resolves false if the viewer declines.
+ */
+export async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
+  const host = (window as unknown as { claude?: HostRuntime }).claude;
+  if (host && typeof host.use === 'function') {
+    let dl: HostDownloads | null = null;
+    try {
+      dl = (await host.use('downloads')) as HostDownloads | null;
+    } catch {
+      dl = null;
+    }
+    if (dl) {
+      let file = blob;
+      let filename = name;
+      const ext = name.split('.').pop()?.toLowerCase() ?? '';
+      if (!HOST_EXTENSIONS.has(ext)) {
+        file = await zipFiles([{ name, data: blob }]);
+        filename = `${name}.zip`;
+      }
+      try {
+        await dl.save({ filename, data: file });
+        return true;
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code !== 'declined') toast(`Couldn't save ${filename}${code ? ` (${code})` : ''}`, 'error', 4000);
+        return false;
+      }
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = h('a', { href: url, download: name, style: { display: 'none' } });
   document.body.append(a);
@@ -82,6 +125,7 @@ export function downloadBlob(blob: Blob, name: string): void {
     a.remove();
     URL.revokeObjectURL(url);
   }, 4000);
+  return true;
 }
 
 export function pickFile(accept: string): Promise<File | null> {
@@ -191,7 +235,10 @@ export function showMenu(anchor: HTMLElement, items: (MenuItem | '-')[]): void {
 
 export function modal(title: string, body: HTMLElement, opts: { onClose?: () => void; wide?: boolean; closable?: boolean } = {}): { el: HTMLElement; close: () => void } {
   const closable = opts.closable ?? true;
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     back.remove();
     opts.onClose?.();
   };

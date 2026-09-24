@@ -69,8 +69,7 @@ button {
 #app {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 6px var(--bottom-h);
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
 }
 
