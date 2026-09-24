@@ -115,6 +115,7 @@ export function toast(msg: string, kind: 'info' | 'error' | 'ok' = 'info', ms = 
   }
   const el = h('div', { class: `toast toast-${kind}` }, msg);
   toastHost.append(el);
+  while (toastHost.children.length > 3) toastHost.firstElementChild?.remove();
   requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => {
     el.classList.remove('show');

@@ -293,14 +293,37 @@ export class Inspector {
     });
     this.body.append(
       this.section('Backing audio (sync any song)', [
-        h('p', { class: 'section-note' }, 'To visualize an existing song: import its MIDI, then load the original audio here. The video uses the MIDI notes while you hear the real track.'),
+        h('p', { class: 'section-note' }, 'Remake a beat by ear: load the original track, detect its tempo, then program drums and notes along with it (its waveform shows behind the editor). Or import a song’s MIDI plus its audio to visualize the real recording.'),
         nameEl,
         h('div', { class: 'btn-row' }, loadBtn, removeBtn),
+        h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo & align grid'),
+        h(
+          'div',
+          { class: 'nudge-row' },
+          h('span', { class: 'field-label' }, 'Shift grid'),
+          ...([
+            [-1, '−1 beat'],
+            [-0.5, '−½'],
+            [0.5, '+½'],
+            [1, '+1 beat'],
+          ] as const).map(([b, l]) => h('button', { class: 'btn', title: `Move the audio ${b > 0 ? 'later' : 'earlier'} by ${Math.abs(b)} beat`, onclick: () => a.shiftBacking(b) }, l)),
+        ),
+        this.bind(
+          rangeField('Audio volume', {
+            min: 0,
+            max: 1.5,
+            step: 0.01,
+            format: pct,
+            get: () => this.engine.backingVolume,
+            set: (v) => (this.engine.backingVolume = v),
+          }),
+        ),
+        h('p', { class: 'section-note' }, 'Exports contain exactly what you hear — turn the audio volume to 0 to leave the reference out of your remake.'),
         this.bind(
           rangeField('Audio offset', {
-            min: -3,
-            max: 3,
-            step: 0.01,
+            min: -8,
+            max: 8,
+            step: 0.005,
             format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}s`,
             get: () => s.song.audioOffset,
             set: (v) => {
@@ -313,7 +336,7 @@ export class Inspector {
           }),
         ),
         this.bind(
-          toggleField('Also play synths', {
+          toggleField('Play my tracks too', {
             get: () => s.song.synthsWithAudio,
             set: (v) => {
               s.update((so) => (so.synthsWithAudio = v));

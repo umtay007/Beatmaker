@@ -4,6 +4,7 @@ import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types'
 import { loadKit } from './drums';
 import { buildEvents, Graph, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
 import type { Voice } from './instruments';
+import { peakEnvelope } from './tempo';
 
 const LOOKAHEAD = 0.14;
 const INTERVAL = 25;
@@ -23,6 +24,9 @@ export class AudioEngine {
   kits: KitBuffers = new Map();
   backingBuffer: AudioBuffer | null = null;
   backingName = '';
+  /** Peak envelope of the backing audio (200 values per second) for waveform drawing. */
+  backingPeaks: Float32Array | null = null;
+  private backingVol = 0.9;
 
   playing = false;
   /** When true (video export) loop wrapping and latency compensation are disabled. */
@@ -77,6 +81,7 @@ export class AudioEngine {
         this.streamDest = null;
       }
       this.sched = new NoteScheduler(graph, this.kits);
+      graph.backing.gain.value = this.backingVol;
       graph.applyMix(this.song, false);
       this.applySynthMute();
     }
@@ -329,6 +334,7 @@ export class AudioEngine {
     const buf = await ctx.decodeAudioData(data);
     this.backingBuffer = buf;
     this.backingName = file.name;
+    this.backingPeaks = peakEnvelope(buf);
     this.applySynthMute();
     return buf.duration;
   }
@@ -337,7 +343,17 @@ export class AudioEngine {
     if (this.ctx) this.stopBacking(this.ctx.currentTime);
     this.backingBuffer = null;
     this.backingName = '';
+    this.backingPeaks = null;
     this.applySynthMute();
+  }
+
+  get backingVolume(): number {
+    return this.backingVol;
+  }
+
+  set backingVolume(v: number) {
+    this.backingVol = v;
+    if (this.graph) this.graph.backing.gain.value = v;
   }
 
   private startBacking(ctxTime: number, songPos: number): void {

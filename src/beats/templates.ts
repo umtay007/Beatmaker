@@ -38,7 +38,7 @@ export function blankSong(palette: string[]): Song {
     ],
     loop: { enabled: false, start: 0, end: 4 * BAR },
     audioOffset: 0,
-    synthsWithAudio: false,
+    synthsWithAudio: true,
   };
 }
 

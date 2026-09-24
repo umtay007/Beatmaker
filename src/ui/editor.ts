@@ -730,6 +730,29 @@ export class Editor {
       ctx.fillStyle = isBar ? 'rgba(255,255,255,0.16)' : isBeat ? 'rgba(255,255,255,0.075)' : 'rgba(255,255,255,0.03)';
       ctx.fillRect(x, RULER, 1, this.gridH);
     }
+    // Reference audio waveform (for remaking a beat by ear)
+    const peaks = this.engine.backingPeaks;
+    if (peaks) {
+      const tl = this.engine.timeline;
+      const off = song.audioOffset;
+      const mid = RULER + this.gridH / 2;
+      const amp = this.gridH * 0.42;
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.beginPath();
+      ctx.moveTo(GUTTER, mid);
+      const pts: [number, number][] = [];
+      for (let x = GUTTER; x <= W; x += 2) {
+        const sec = tl.rawTickToSec(Math.max(0, this.xToTick(x))) - off;
+        const i = Math.floor(sec * 200);
+        const v = i >= 0 && i < peaks.length ? peaks[i] : 0;
+        pts.push([x, v * amp]);
+        ctx.lineTo(x, mid - v * amp);
+      }
+      for (let k = pts.length - 1; k >= 0; k--) ctx.lineTo(pts[k][0], mid + pts[k][1]);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // Drum step shading (every other beat) for readability
     if (drums) {
       for (let b = Math.floor(this.scrollX / PPQ); b * PPQ <= tick1; b++) {

@@ -837,7 +837,7 @@ export function generateSong(opts: GenerateOptions): Song {
     tracks,
     loop: { enabled: false, start: 0, end: Math.min(4, bars) * BAR },
     audioOffset: 0,
-    synthsWithAudio: false,
+    synthsWithAudio: true,
   };
 }
 

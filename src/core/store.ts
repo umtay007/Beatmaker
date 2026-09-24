@@ -261,7 +261,7 @@ export function normalizeSong(song: Partial<Song>): Song {
     })),
     loop: song.loop ?? { enabled: false, start: 0, end: (song.bars ?? 4) * 384 },
     audioOffset: song.audioOffset ?? 0,
-    synthsWithAudio: song.synthsWithAudio ?? false,
+    synthsWithAudio: song.synthsWithAudio ?? true,
   };
   return s;
 }

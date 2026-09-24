@@ -9,6 +9,7 @@ export interface RenderOptions {
   tail: number;
   sampleRate?: number;
   backing?: AudioBuffer | null;
+  backingVolume?: number;
 }
 
 /** Render a song (or part of it) faster than real time with an OfflineAudioContext. */
@@ -31,6 +32,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   }
   if (opts.backing) {
     graph.synthBus.gain.value = song.synthsWithAudio ? 1 : 0;
+    graph.backing.gain.value = opts.backingVolume ?? 1;
     const src = ctx.createBufferSource();
     src.buffer = opts.backing;
     src.connect(graph.backing);

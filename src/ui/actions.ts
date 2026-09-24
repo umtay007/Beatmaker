@@ -1,5 +1,6 @@
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
+import { detectTempo } from '../audio/tempo';
 import { generateSong, GENRE_BY_ID } from '../beats/generator';
 import { blankSong } from '../beats/templates';
 import { normalizeSong, type Store } from '../core/store';
@@ -83,10 +84,33 @@ export class Actions {
       }
       this.engine.applySynthMute();
       this.store.emit('ui');
-      toast(`Loaded audio “${file.name}”. The visuals follow the MIDI notes; synths are muted while audio plays.`, 'ok', 4500);
+      toast(`Loaded “${file.name}” as a reference track. Use “Detect tempo” to line the grid up with it.`, 'ok', 4500);
     } catch (e) {
       toast(`Couldn't decode audio: ${(e as Error).message}`, 'error', 4000);
     }
+  }
+
+  /** Estimate the reference track's tempo and first beat, then line the song grid up with it. */
+  detectBackingTempo(): void {
+    const buf = this.engine.backingBuffer;
+    if (!buf) {
+      toast('Load a reference audio file first', 'error');
+      return;
+    }
+    const res = detectTempo(buf);
+    this.store.update((s) => {
+      s.bpm = res.bpm;
+      s.tempoChanges = [];
+      s.audioOffset = -Math.round(res.firstBeat * 1000) / 1000;
+    });
+    const tip = res.bpm > 150 ? ` (half-time feel? try ${Math.round(res.bpm / 2)})` : res.bpm < 75 ? ` (double-time? try ${Math.round(res.bpm * 2)})` : '';
+    toast(`Detected ${res.bpm} BPM, first beat at ${res.firstBeat.toFixed(2)}s${tip}`, 'ok', 5000);
+  }
+
+  /** Shift the reference audio against the grid by a number of beats. */
+  shiftBacking(beats: number): void {
+    const sec = (60 / this.store.song.bpm) * beats;
+    this.store.update((s) => (s.audioOffset = Math.round((s.audioOffset + sec) * 1000) / 1000));
   }
 
   async importProjectFile(file: File): Promise<void> {
@@ -158,7 +182,7 @@ export class Actions {
     const body = h('div', null, h('p', null, 'Rendering audio…'), h('div', { class: 'progress' }, h('div', { style: { width: '60%' } })));
     const m = modal('Export WAV', body, { closable: false });
     try {
-      const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer });
+      const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer, backingVolume: this.engine.backingVolume });
       downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`);
       toast('WAV exported', 'ok');
     } catch (e) {

@@ -189,7 +189,7 @@ function prepare(song: Song, tl: Timeline, v: VisualSettings, key: string): Prep
         lane = melLen / span;
         u = melStart + ((lanePos.get(n.pitch) ?? n.pitch - lo) + 0.5) * lane;
       }
-      notes.push({ t0, t1: drum ? t0 + Math.min(t1 - t0, 0.12) : t1, u, lane, thick: lane * 0.9, rgb, vel: n.vel, id: n.id, drum, trackIdx, next: -1 });
+      notes.push({ t0, t1: drum ? t0 + Math.min(t1 - t0, 0.12) : t1, u, lane, thick: Math.min(lane * 0.9, 0.05), rgb, vel: n.vel, id: n.id, drum, trackIdx, next: -1 });
       maxDur = Math.max(maxDur, t1 - t0);
     }
     if (track.kind !== 'drums' && maxPolyphony(track) <= 1) for (let i = first; i < notes.length - 1; i++) notes[i].next = i + 1;
@@ -208,7 +208,7 @@ function prepare(song: Song, tl: Timeline, v: VisualSettings, key: string): Prep
       active.push(n);
     }
     const lane = mel.length ? mel[0].lane : 0.05;
-    const thick = Math.max(lane, Math.min(minGap * 0.82, lane * 4, 0.09));
+    const thick = Math.min(Math.max(lane, Math.min(minGap * 0.82, lane * 4)), 0.06);
     for (const n of mel) n.thick = thick;
   }
 

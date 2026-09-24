@@ -157,6 +157,12 @@ export class EditorBar {
     this.inst.value = t.instrument;
     this.grid.value = String(ui.grid);
     if (![...this.grid.options].some((o) => o.value === String(ui.grid))) this.grid.value = String(STEP);
+    if (![...this.len.options].some((o) => o.value === String(ui.noteLength))) {
+      [...this.len.options].filter((o) => o.dataset.custom).forEach((o) => o.remove());
+      const steps = ui.noteLength / STEP;
+      const label = Number.isInteger(steps) ? `${steps}/16` : `${ui.noteLength} ticks`;
+      this.len.append(h('option', { value: ui.noteLength, 'data-custom': '1' }, label));
+    }
     this.len.value = String(ui.noteLength);
     this.lenWrap.style.display = t.kind === 'drums' ? 'none' : 'contents';
     if (document.activeElement !== this.pan) this.pan.value = String(t.pan);
