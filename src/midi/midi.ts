@@ -193,8 +193,8 @@ export function gmToInstrument(program: number): string {
 }
 
 const INSTRUMENT_TO_GM: Record<string, number> = {
-  bass808: 38, sub: 38, deepbass: 33, reese: 39, logdrum: 116, pluck: 25, marimba: 12, epiano: 4,
-  piano: 0, organ: 16, pad: 89, strings: 48, choir: 52, supersaw: 81, lead: 81, flute: 73, brass: 61,
+  bass808: 38, bass808s: 38, sub: 38, deepbass: 33, reese: 39, logdrum: 116, pluck: 25, marimba: 12, epiano: 4,
+  piano: 0, organ: 16, pad: 89, strings: 48, darkstrings: 49, choir: 52, supersaw: 81, lead: 81, flute: 73, brass: 61,
   chip: 80, bell: 14, glock: 9,
 };
 

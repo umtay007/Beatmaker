@@ -111,6 +111,14 @@ class VoiceKit {
     p.setTargetAtTime(peak * sustain, t + attack, decayTau);
   }
 
+  /** A stereo position inside the voice (for wide, chorus-like instruments). */
+  panned(value: number): StereoPannerNode {
+    const p = this.ctx.createStereoPanner();
+    p.pan.value = value;
+    p.connect(this.rel);
+    return p;
+  }
+
   /** LFO → param (depth in param units). */
   lfo(p: AudioParam, rate: number, depth: number, delay = 0, type: OscillatorType = 'sine'): void {
     const o = this.ctx.createOscillator();
@@ -240,6 +248,36 @@ export const INSTRUMENTS: InstrumentDef[] = [
       o.connect(amp);
       g2.connect(amp);
       amp.connect(sh).connect(lp).connect(v.gain(0.48)).connect(v.rel);
+      return v.finish();
+    },
+  },
+  {
+    id: 'bass808s',
+    label: '808 Smooth',
+    group: 'Bass',
+    mono: true,
+    octave: 1,
+    build(ctx, out, a) {
+      // Long 808 with a gentle pitch settle (about a semitone) and a slow natural decay.
+      const v = new VoiceKit(ctx, out, a, 0.07, 0.09);
+      const o = v.osc('sine');
+      const legato = a.glideFrom !== undefined;
+      if (!legato) {
+        o.frequency.cancelScheduledValues(a.time);
+        o.frequency.setValueAtTime(v.f * Math.pow(2, 1.1 / 12), a.time);
+        o.frequency.setTargetAtTime(v.f, a.time + 0.01, 0.05);
+      }
+      const o2 = v.osc('triangle');
+      const g2 = v.gain(0.08);
+      o2.connect(g2);
+      const amp = v.gain(0);
+      if (legato) {
+        amp.gain.setValueAtTime(a.vel * 0.6, a.time);
+        amp.gain.setTargetAtTime(a.vel * 0.05, a.time, 0.6);
+      } else v.adsr(amp.gain, 0.003, 0.55, 0.05, a.vel);
+      o.connect(amp);
+      g2.connect(amp);
+      amp.connect(drive(ctx, 2)).connect(v.filter('lowpass', 1600)).connect(v.gain(0.6)).connect(v.rel);
       return v.finish();
     },
   },
@@ -463,6 +501,42 @@ export const INSTRUMENTS: InstrumentDef[] = [
     },
   },
   {
+    id: 'darkstrings',
+    label: 'Dark Strings (wide)',
+    group: 'Pad',
+    octave: 4,
+    build(ctx, out, a) {
+      // Warm, very wide string pad: detuned saw pairs hard left / right through soft low-pass filters.
+      const v = new VoiceKit(ctx, out, a, 0.45);
+      for (const [side, dets] of [
+        [-1, [-11, 4]],
+        [1, [11, -4]],
+      ] as const) {
+        const lp = v.filter('lowpass', 1900, 0.5);
+        v.lfo(lp.frequency, side < 0 ? 0.21 : 0.17, 160);
+        const lp2 = v.filter('lowpass', 6500, 0.5);
+        for (const d of dets) {
+          const o = v.osc('sawtooth', 1, d);
+          v.lfo(o.detune, 4.6, 5, 0.4);
+          o.connect(lp);
+        }
+        // Tone shaping measured against a reference string pad: scoop the 1.2 kHz honk, add air.
+        const scoop = v.filter('peaking', 1250, 0.9);
+        scoop.gain.value = -6;
+        const air = v.filter('highshelf', 3500, 0.7);
+        air.gain.value = 5;
+        const amp = v.gain(0);
+        v.adsr(amp.gain, 0.28, 0.8, 0.9, a.vel * 0.12);
+        lp.connect(lp2).connect(scoop).connect(air).connect(amp).connect(v.panned(side));
+      }
+      const body = v.osc('triangle');
+      const bg = v.gain(0);
+      v.adsr(bg.gain, 0.2, 0.8, 0.9, a.vel * 0.11);
+      body.connect(bg).connect(v.rel);
+      return v.finish();
+    },
+  },
+  {
     id: 'choir',
     label: 'Choir',
     group: 'Pad',
@@ -626,5 +700,5 @@ export const INSTRUMENTS: InstrumentDef[] = [
 export const INSTRUMENT_BY_ID = new Map(INSTRUMENTS.map((i) => [i.id, i]));
 
 export function instrumentFor(id: string): InstrumentDef {
-  return INSTRUMENT_BY_ID.get(id) ?? INSTRUMENTS[5];
+  return INSTRUMENT_BY_ID.get(id) ?? INSTRUMENT_BY_ID.get('pluck')!;
 }

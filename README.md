@@ -18,9 +18,10 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
 - **Start blank and program your own.** Melodic tracks use a piano roll with scale highlighting,
   and drum tracks use a step grid. Both have a velocity lane, box selection, copy/paste, duplicate,
   transpose, nudge, quantize, humanize and undo/redo.
-- **6 synthesized drum kits** (Trap 808, Boom Bap, Lo-Fi Dusty, House 909, Breaks, Retro 80s) and
-  **20 instruments**: 808, sub, deep, reese and log-drum basses, pluck, marimba, electric piano,
-  piano, organ, pad, strings, choir, supersaw, lead, flute, brass, chiptune, bell and glockenspiel.
+- **7 synthesized drum kits** (Trap 808, Florida Trap, Boom Bap, Lo-Fi Dusty, House 909, Breaks,
+  Retro 80s) and **22 instruments**: 808, 808 Smooth, sub, deep, reese and log-drum basses, pluck,
+  marimba, electric piano, piano, organ, pad, strings, wide dark strings, choir, supersaw, lead,
+  flute, brass, chiptune, bell and glockenspiel.
 - Swing, tempo, key and scale, a loop range, a metronome, and live input from your computer
   keyboard with recording.
 - A **"New part" button** that rewrites a single track in any style.
