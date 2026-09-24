@@ -127,11 +127,11 @@ export class TopBar {
     const a = this.actions;
     showMenu(anchor, [
       { label: 'New blank beat', icon: 'plus', action: () => a.newBlank() },
-      { label: 'Open project…', icon: 'file', action: () => a.pickAndOpen('.json,application/json') },
+      { label: 'Open file…', icon: 'file', hint: 'MIDI · audio · project', action: () => a.pickAndOpen('') },
       { label: 'Save project', icon: 'download', action: () => a.saveProject() },
       '-',
       { label: 'Import MIDI…', icon: 'upload', action: () => a.pickAndOpen('.mid,.midi,audio/midi') },
-      { label: 'Load backing audio…', icon: 'wave', action: () => a.pickAndOpen('audio/*,.mp3,.wav,.m4a,.ogg,.flac') },
+      { label: 'Load reference audio…', icon: 'wave', action: () => a.pickAndOpen('') },
       '-',
       { label: 'Export video', icon: 'film', action: () => a.exportVideo() },
       { label: 'Export WAV', icon: 'wave', action: () => a.exportWav() },

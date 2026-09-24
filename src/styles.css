@@ -1484,3 +1484,9 @@ button {
 .nudge-row .field-label {
   padding-right: 4px;
 }
+
+.starter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}

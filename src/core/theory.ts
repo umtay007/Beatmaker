@@ -168,3 +168,43 @@ export function normalizeDrumPitch(p: number): number {
   if (p < 36) return 36;
   return p > 81 ? 70 : 63;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Key estimation (Krumhansl–Kessler profiles, Pearson correlation)
+
+const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+
+function pearson(a: number[], b: number[]): number {
+  const n = a.length;
+  const ma = a.reduce((x, y) => x + y, 0) / n;
+  const mb = b.reduce((x, y) => x + y, 0) / n;
+  let num = 0;
+  let da = 0;
+  let db = 0;
+  for (let i = 0; i < n; i++) {
+    num += (a[i] - ma) * (b[i] - mb);
+    da += (a[i] - ma) ** 2;
+    db += (b[i] - mb) ** 2;
+  }
+  return da && db ? num / Math.sqrt(da * db) : 0;
+}
+
+/** Best-matching major or minor key for a 12-bin pitch-class histogram. */
+export function estimateKey(hist: number[]): { key: number; scale: 'major' | 'minor'; score: number; margin: number } {
+  const scores: { key: number; scale: 'major' | 'minor'; score: number }[] = [];
+  for (let k = 0; k < 12; k++) {
+    const rotated = hist.map((_, i) => hist[(i + k) % 12]);
+    scores.push({ key: k, scale: 'major', score: pearson(rotated, MAJOR_PROFILE) });
+    scores.push({ key: k, scale: 'minor', score: pearson(rotated, MINOR_PROFILE) });
+  }
+  scores.sort((a, b) => b.score - a.score);
+  return { ...scores[0], margin: scores[0].score - scores[1].score };
+}
+
+/** Whether chord and note names in this key read better with flats (F, Bb, Eb… and minor modes of them). */
+export function keyPrefersFlats(key: number, scale: string): boolean {
+  const offsets: Record<string, number> = { minor: 3, dorian: 10, phrygian: 8, harmonic: 3, minpent: 3, blues: 3, mixolydian: 5, lydian: 7, major: 0, majpent: 0 };
+  const relMajor = (((key + (offsets[scale] ?? 0)) % 12) + 12) % 12;
+  return [0, 5, 10, 3, 8, 1, 6].includes(relMajor);
+}

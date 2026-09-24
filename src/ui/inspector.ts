@@ -286,7 +286,7 @@ export class Inspector {
     // Backing audio
     const nameEl = h('div', { class: 'kv' }, h('span', null, 'Audio'), h('b', null, '—'));
     const removeBtn = h('button', { class: 'btn', onclick: () => { this.engine.clearBacking(); this.refresh(); } }, icon('trash', 15), 'Remove');
-    const loadBtn = h('button', { class: 'btn', onclick: () => a.pickAndOpen('audio/*,.mp3,.wav,.m4a,.ogg,.flac') }, icon('upload', 15), 'Load audio');
+    const loadBtn = h('button', { class: 'btn', onclick: () => a.pickAndOpen('') }, icon('upload', 15), 'Load audio');
     this.refreshers.push(() => {
       (nameEl.lastChild as HTMLElement).textContent = this.engine.backingName || 'none';
       removeBtn.toggleAttribute('disabled', !this.engine.backingBuffer);
@@ -296,7 +296,7 @@ export class Inspector {
         h('p', { class: 'section-note' }, 'Remake a beat by ear: load the original track, detect its tempo, then program drums and notes along with it (its waveform shows behind the editor). Or import a song’s MIDI plus its audio to visualize the real recording.'),
         nameEl,
         h('div', { class: 'btn-row' }, loadBtn, removeBtn),
-        h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo & align grid'),
+        h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo, key & align grid'),
         h(
           'div',
           { class: 'nudge-row' },
@@ -308,6 +308,16 @@ export class Inspector {
             [1, '+1 beat'],
           ] as const).map(([b, l]) => h('button', { class: 'btn', title: `Move the audio ${b > 0 ? 'later' : 'earlier'} by ${Math.abs(b)} beat`, onclick: () => a.shiftBacking(b) }, l)),
         ),
+        (() => {
+          const sel = h('select', { class: 'select', 'aria-label': 'Starter beat style' }, GENRES.map((g) => h('option', { value: g.id }, g.label))) as HTMLSelectElement;
+          sel.value = a.lastGenre;
+          return h(
+            'div',
+            { class: 'starter-row' },
+            sel,
+            h('button', { class: 'btn', title: 'Write drums, bass, chords and melody on the current tempo, key and length, keeping the reference audio', onclick: () => a.starterOnGrid(sel.value) }, icon('sparkle', 15), 'Starter beat'),
+          );
+        })(),
         this.bind(
           rangeField('Audio volume', {
             min: 0,

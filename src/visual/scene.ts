@@ -1,4 +1,4 @@
-import { detectChord, DRUM_VOICES } from '../core/theory';
+import { detectChord, DRUM_VOICES, keyPrefersFlats } from '../core/theory';
 import type { Timeline } from '../core/timing';
 import type { Song, Track } from '../core/types';
 import type { Anchor, VisualSettings } from './settings';
@@ -943,7 +943,7 @@ export class Scene {
           if (f.timeline.tickToSec(n.start + n.dur) > t) sounding.push(n.pitch);
         }
       }
-      const res = sounding.length >= 2 ? detectChord(sounding) : null;
+      const res = sounding.length >= 2 ? detectChord(sounding, keyPrefersFlats(f.song.key, f.song.scale)) : null;
       if (res) {
         if (!this.lastChord || this.lastChord.name !== res.name) this.lastChord = { name: res.name, notes: res.notes, since: t, at: t };
         else this.lastChord.at = t;

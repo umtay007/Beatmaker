@@ -1,0 +1,56 @@
+import { estimateKey } from '../core/theory';
+import { fft } from './fft';
+
+/**
+ * Estimate the key of a recording: STFT (~2.7 Hz bins) → peak-picked chroma between 50 Hz and
+ * 2 kHz → Krumhansl–Kessler key profiles.
+ */
+export function detectAudioKey(buf: AudioBuffer, maxSeconds = 120): { key: number; scale: 'major' | 'minor'; confidence: number } {
+  const c0 = buf.getChannelData(0);
+  const c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
+  const dec = Math.max(1, Math.round(buf.sampleRate / 11025));
+  const sr = buf.sampleRate / dec;
+  const len = Math.min(Math.floor(c0.length / dec), Math.floor(maxSeconds * sr));
+  const N = 4096;
+  const hop = 2048;
+  const chroma = new Array(12).fill(0);
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  const mag = new Float64Array(N / 2);
+  const win = new Float64Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+  const binHz = sr / N;
+  const k0 = Math.ceil(50 / binHz);
+  const k1 = Math.min(N / 2 - 2, Math.floor(2000 / binHz));
+  for (let o = 0; o + N <= len; o += hop) {
+    for (let i = 0; i < N; i++) {
+      let s = 0;
+      const j = (o + i) * dec;
+      for (let d = 0; d < dec; d++) s += c0[j + d] + c1[j + d];
+      re[i] = (s / (2 * dec)) * win[i];
+      im[i] = 0;
+    }
+    fft(re, im);
+    for (let k = k0 - 1; k <= k1 + 1; k++) mag[k] = Math.hypot(re[k], im[k]);
+    for (let k = k0; k <= k1; k++) {
+      const m = mag[k];
+      if (m <= mag[k - 1] || m < mag[k + 1]) continue; // spectral peaks only
+      // Parabolic peak interpolation for a better frequency estimate.
+      const a = mag[k - 1];
+      const b = mag[k + 1];
+      const den = a - 2 * m + b;
+      const delta = den < 0 ? (0.5 * (a - b)) / den : 0;
+      const f = (k + delta) * binHz;
+      const pitch = 69 + 12 * Math.log2(f / 440);
+      const nearest = Math.round(pitch);
+      const dev = Math.abs(pitch - nearest);
+      if (dev > 0.35) continue;
+      // Low notes (808s, bass) are strong evidence for the tonic; keep them, but tame their level.
+      const w = Math.sqrt(m) * (1 - dev * 2) * (f < 120 ? 0.7 : 1);
+      chroma[((nearest % 12) + 12) % 12] += w;
+    }
+  }
+  if (chroma.every((v) => v === 0)) return { key: 0, scale: 'minor', confidence: 0 };
+  const r = estimateKey(chroma);
+  return { key: r.key, scale: r.scale, confidence: Math.max(0, Math.min(1, r.margin * 5)) };
+}

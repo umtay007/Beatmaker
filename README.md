@@ -28,9 +28,11 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
 
 **Remake an existing beat**
 
-- **Load the original track as a reference.** *Detect tempo & align grid* finds its BPM and first
-  beat. The waveform then appears behind the editor, so you can program the drums and notes by ear
-  while it plays. The *Shift grid* buttons (−1, −½, +½, +1 beat) fix any leftover offset.
+- **Load the original track as a reference.** *Detect tempo, key & align grid* finds its BPM,
+  first beat and key. The waveform then appears behind the editor, so you can program the drums and
+  notes by ear while it plays. The *Shift grid* buttons (−1, −½, +½, +1 beat) fix any leftover
+  offset, and *Starter beat* writes a first draft in any style on that tempo, key and length.
+- Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
   become drum tracks, and GM programs are mapped to the closest built-in instrument. Imports keep
   tempo changes and key signatures.
@@ -80,8 +82,8 @@ To start empty, click **Blank beat**. Click a track on the left to edit it below
 to add notes or drum hits, and drag to paint. Drag a note to move it, drag its right edge to
 resize it, and right-click to erase.
 
-**Remake a song by ear.** Choose **File → Load backing audio…**, then **Detect tempo & align grid**
-under *Backing audio*. Add tracks with **+ Drums** or **+ Instrument** and program along with the
+**Remake a song by ear.** Choose **File → Load reference audio…**, then **Detect tempo, key & align
+grid** under *Backing audio*. Add tracks with **+ Drums** or **+ Instrument** and program along with the
 waveform. Turn *Audio volume* down to 0 before exporting if you want only your remake in the file.
 
 **Visualize any song.** Drag its `.mid` file and its audio file onto the window together. You can

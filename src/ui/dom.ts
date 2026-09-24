@@ -130,7 +130,7 @@ export async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
 
 export function pickFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {
-    const input = h('input', { type: 'file', accept, style: { display: 'none' } });
+    const input = h('input', { type: 'file', accept: accept || undefined, style: { display: 'none' } });
     input.addEventListener('change', () => {
       resolve(input.files?.[0] ?? null);
       input.remove();

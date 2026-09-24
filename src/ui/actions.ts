@@ -1,15 +1,20 @@
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
+import { detectAudioKey } from '../audio/key';
 import { detectTempo } from '../audio/tempo';
 import { generateSong, GENRE_BY_ID } from '../beats/generator';
 import { blankSong } from '../beats/templates';
 import { normalizeSong, type Store } from '../core/store';
+import { pcName } from '../core/theory';
+import { Timeline } from '../core/timing';
 import { BAR, cloneSong, newNoteId } from '../core/types';
 import { midiToSong, songToMidi } from '../midi/midi';
 import { exportVideo, pickFormat } from '../visual/exporter';
 import type { VisualPlayer } from '../visual/player';
 import { DEFAULT_VISUAL, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
 import { downloadBlob, h, modal, pickFile, safeName, toast } from './dom';
+
+const SCALES_7 = new Set(['minor', 'major', 'dorian', 'phrygian', 'harmonic', 'mixolydian', 'lydian']);
 
 export interface GenerateChoice {
   genre: string;
@@ -73,7 +78,7 @@ export class Actions {
     }
   }
 
-  async importAudioFile(file: File): Promise<void> {
+  async importAudioFile(file: File, guessed = false): Promise<void> {
     try {
       const dur = await this.engine.loadBacking(file);
       const end = this.engine.songEndSec();
@@ -86,11 +91,17 @@ export class Actions {
       this.store.emit('ui');
       toast(`Loaded “${file.name}” as a reference track. Use “Detect tempo” to line the grid up with it.`, 'ok', 4500);
     } catch (e) {
-      toast(`Couldn't decode audio: ${(e as Error).message}`, 'error', 4000);
+      toast(
+        guessed
+          ? `“${file.name}” isn't a MIDI, audio, image or project file this browser can read.`
+          : `Couldn't decode audio: ${(e as Error).message || 'unsupported format'}`,
+        'error',
+        5000,
+      );
     }
   }
 
-  /** Estimate the reference track's tempo and first beat, then line the song grid up with it. */
+  /** Estimate the reference track's tempo, first beat and key, then line the song grid up with it. */
   detectBackingTempo(): void {
     const buf = this.engine.backingBuffer;
     if (!buf) {
@@ -98,13 +109,43 @@ export class Actions {
       return;
     }
     const res = detectTempo(buf);
+    const key = detectAudioKey(buf);
     this.store.update((s) => {
       s.bpm = res.bpm;
       s.tempoChanges = [];
       s.audioOffset = -Math.round(res.firstBeat * 1000) / 1000;
+      s.key = key.key;
+      s.scale = key.scale;
+      // Fit the song to the reference (but never cut off existing notes).
+      const audioBars = Math.ceil(new Timeline(s).secToTick(buf.duration + s.audioOffset) / BAR);
+      const lastNote = Math.max(0, ...s.tracks.flatMap((t) => t.notes.map((n) => n.start + n.dur)));
+      s.bars = Math.min(256, Math.max(1, audioBars, Math.ceil(lastNote / BAR)));
     });
     const tip = res.bpm > 150 ? ` (half-time feel? try ${Math.round(res.bpm / 2)})` : res.bpm < 75 ? ` (double-time? try ${Math.round(res.bpm * 2)})` : '';
-    toast(`Detected ${res.bpm} BPM, first beat at ${res.firstBeat.toFixed(2)}s${tip}`, 'ok', 5000);
+    toast(`Detected ${res.bpm} BPM${tip} in ${pcName(key.key, true)} ${key.scale}${key.confidence < 0.3 ? ' (key uncertain)' : ''}`, 'ok', 6000);
+  }
+
+  /** Write a starter beat in the chosen style on the current grid (tempo, key, length), keeping the reference audio. */
+  starterOnGrid(genre = this.lastGenre): void {
+    const cur = this.store.song;
+    const song = generateSong({
+      genre,
+      bars: Math.max(4, cur.bars),
+      key: cur.key,
+      scale: SCALES_7.has(cur.scale) ? cur.scale : undefined,
+      bpm: cur.bpm,
+      palette: this.palette(),
+    });
+    song.name = cur.name;
+    song.artist = cur.artist;
+    song.audioOffset = cur.audioOffset;
+    song.synthsWithAudio = true;
+    song.swing = cur.swing;
+    this.lastGenre = genre;
+    this.store.loadSong(song);
+    this.engine.applySynthMute();
+    void this.engine.ensureKits();
+    toast(`Starter ${GENRE_BY_ID.get(genre)?.label ?? ''} beat written at ${song.bpm} BPM in ${pcName(song.key, true)} ${song.scale} — edit it to match the reference`, 'ok', 5000);
   }
 
   /** Shift the reference audio against the grid by a number of beats. */
@@ -127,13 +168,32 @@ export class Actions {
     }
   }
 
-  async openFile(file: File): Promise<void> {
+  /** Work out what a file is from its name, MIME type or first bytes (files may have no extension). */
+  private async sniff(file: File): Promise<'midi' | 'project' | 'audio' | 'image' | 'unknown'> {
     const name = file.name.toLowerCase();
-    if (/\.(mid|midi)$/.test(name)) return this.importMidiFile(file);
-    if (/\.json$/.test(name)) return this.importProjectFile(file);
-    if (file.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|flac|aac|opus|webm)$/.test(name)) return this.importAudioFile(file);
-    if (file.type.startsWith('image/')) return this.setBackgroundImage(file);
-    toast('Drop a .mid, audio, image or .json project file', 'error');
+    if (/\.(mid|midi|kar)$/.test(name)) return 'midi';
+    if (/\.json$/.test(name)) return 'project';
+    if (file.type.startsWith('audio/') || file.type.startsWith('video/') || /\.(mp3|wav|m4a|ogg|oga|flac|aac|opus|webm|mp4|aif|aiff)$/.test(name)) return 'audio';
+    if (file.type.startsWith('image/')) return 'image';
+    const b = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const str = (o: number, n: number) => String.fromCharCode(...b.slice(o, o + n));
+    if (str(0, 4) === 'MThd' || (str(0, 4) === 'RIFF' && str(8, 4) === 'RMID')) return 'midi';
+    if (str(0, 4) === 'RIFF' && str(8, 4) === 'WEBP') return 'image';
+    if ((b[0] === 0x89 && str(1, 3) === 'PNG') || (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) || str(0, 4) === 'GIF8') return 'image';
+    if (str(0, 4) === 'RIFF' || str(0, 3) === 'ID3' || str(0, 4) === 'OggS' || str(0, 4) === 'fLaC' || str(4, 4) === 'ftyp' || str(0, 4) === 'FORM') return 'audio';
+    if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio'; // MPEG / AAC frame sync
+    if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'audio'; // WebM / Matroska
+    if (str(0, 1) === '{') return 'project';
+    return 'unknown';
+  }
+
+  async openFile(file: File): Promise<void> {
+    const kind = await this.sniff(file);
+    if (kind === 'midi') return this.importMidiFile(file);
+    if (kind === 'project') return this.importProjectFile(file);
+    if (kind === 'image') return this.setBackgroundImage(file);
+    // Audio, or unknown: let the browser's decoder decide.
+    return this.importAudioFile(file, kind === 'unknown');
   }
 
   async pickAndOpen(accept: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { normalizeDrumPitch, SCALES } from '../core/theory';
+import { estimateKey, normalizeDrumPitch } from '../core/theory';
 import { BAR, newNoteId, newTrackId, PPQ, type Note, type Song, type Track } from '../core/types';
 import { KIT_BY_ID } from '../audio/drums';
 
@@ -322,10 +322,7 @@ export function midiToSong(buf: ArrayBuffer, fileName: string, opts: ImportOptio
   };
 }
 
-const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
-
-/** Krumhansl–Schmuckler key estimate. */
+/** Key estimate from the notes' pitch classes, weighted by duration. */
 export function detectKey(tracks: Track[]): { key: number; scale: string } {
   const hist = new Array(12).fill(0);
   for (const t of tracks) {
@@ -333,18 +330,8 @@ export function detectKey(tracks: Track[]): { key: number; scale: string } {
     for (const n of t.notes) hist[n.pitch % 12] += n.dur;
   }
   if (hist.every((v) => v === 0)) return { key: 0, scale: 'minor' };
-  let best = { score: -Infinity, key: 0, scale: 'minor' };
-  for (let k = 0; k < 12; k++) {
-    for (const [scale, prof] of [
-      ['major', MAJOR_PROFILE],
-      ['minor', MINOR_PROFILE],
-    ] as const) {
-      let s = 0;
-      for (let i = 0; i < 12; i++) s += hist[(i + k) % 12] * prof[i];
-      if (s > best.score) best = { score: s, key: k, scale };
-    }
-  }
-  return { key: best.key, scale: SCALES[best.scale] ? best.scale : 'minor' };
+  const { key, scale } = estimateKey(hist);
+  return { key, scale };
 }
 
 // ---------------------------------------------------------------------------------------------
