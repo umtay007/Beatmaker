@@ -123,8 +123,19 @@ export function nearest(def: SampledDef, pitch: number): Recorded {
   return best;
 }
 
+/** Fluid R3 instruments that the soundfont-for-samplers npm package mirrors (same files) on jsDelivr. */
+const GM_ON_NPM = new Set(['string_ensemble_1', 'tremolo_strings', 'pizzicato_strings', 'brass_section', 'oboe', 'electric_piano_1', 'harpsichord', 'marimba']);
+
+/** Where a recording can be fetched, best first. */
+function urls(def: SampledDef, name: string): string[] {
+  if (def.gm) {
+    const pages = `https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/${def.gm}-mp3/${name}.mp3`;
+    return GM_ON_NPM.has(def.gm) ? [`https://cdn.jsdelivr.net/npm/soundfont-for-samplers@0.0.3/FluidR3_GM/${def.gm}-mp3/${name}.mp3`, pages] : [pages];
+  }
+  return [url(def, name)];
+}
+
 function url(def: SampledDef, name: string): string {
-  if (def.gm) return `https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/${def.gm}-mp3/${name}.mp3`;
   return `https://cdn.jsdelivr.net/npm/tonejs-instrument-${def.pkg}-mp3@${def.version}/${encodeURIComponent(name)}.mp3`;
 }
 
@@ -224,7 +235,15 @@ function load(def: SampledDef, name: string): Promise<AudioBuffer | null> {
     emit();
     p = (async () => {
       try {
-        const data = await slot(() => fetchSample(url(def, name)));
+        const data = await slot(async () => {
+          const [first, ...rest] = urls(def, name);
+          try {
+            return await fetchSample(first);
+          } catch (e) {
+            if (!rest.length) throw e;
+            return fetchSample(rest[0]);
+          }
+        });
         decoder ??= new OfflineAudioContext(2, 1, 44100);
         const buf = await decoder.decodeAudioData(data);
         // The soundfont renders sit about 18 dB under the other set: bring each to a -3 dB peak.

@@ -162,8 +162,9 @@ keep the tab visible while it records.
 The sampled instruments are the [tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
 sample set by Nicholaus Brosowsky (CC BY 3.0), loaded from the jsDelivr CDN, and the Fluid R3 GM
 SoundFont by Frank Wen (CC BY 3.0) in the pre-rendered notes of
-[gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), loaded from its GitHub Pages
-site. Those renders stop around 8 kHz, so a quiet high-passed violin layer can add the air back.
+[gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), loaded from jsDelivr (the
+soundfont-for-samplers npm mirror) where it has them, otherwise from its GitHub Pages site. Those
+renders stop around 8 kHz, so a quiet high-passed violin layer can add the air back.
 
 The recorded drum machines come from the [fluid-music/open-drums](https://github.com/fluid-music/open-drums)
 packages, also loaded from jsDelivr: the TR-808 set by Michael Fischer (free, no restrictions), the
