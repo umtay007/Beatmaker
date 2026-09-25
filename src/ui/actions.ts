@@ -1,3 +1,4 @@
+import { encodeMp3 } from '../audio/mp3';
 import { loadUserFont } from '../audio/userfonts';
 import { newSoundfontTrack } from './soundfontui';
 import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type SoundReport } from '../audio/analyze';
@@ -345,6 +346,34 @@ export class Actions {
     tracks.forEach((t, i) => files.push({ name: `${String(i + 1).padStart(2, '0')} ${fileName(t.name)}.mid`, data: midi(songToMidi({ ...song, tracks: [t] })) }));
     const zip = await zipFiles(files);
     if (await downloadBlob(zip, `${safeName(song.name)}-midi.zip`)) toast(`Exported ${tracks.length} MIDI tracks + the full song`, 'ok', 4000);
+  }
+
+  /** Render the song (or the loop) and download it as a 256 kbps MP3. */
+  async exportMp3(): Promise<void> {
+    if (this.exporting) return;
+    const song = cloneSong(this.store.song);
+    const tl = this.engine.timeline;
+    let from = 0;
+    let to = this.engine.songEndSec();
+    if (this.store.visual.exportRange === 'loop' && song.loop.end > song.loop.start) {
+      from = tl.rawTickToSec(song.loop.start);
+      to = tl.rawTickToSec(song.loop.end);
+    }
+    const status = h('p', null, 'Rendering audio…');
+    const bar = h('div', { style: { width: '0%' } });
+    const m = modal('Export MP3', h('div', null, status, h('div', { class: 'progress' }, bar)), { closable: false });
+    try {
+      const missing = await this.checkSamples(song.tracks);
+      const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer, backingVolume: this.engine.backingVolume });
+      status.textContent = 'Encoding MP3…';
+      const mp3 = await encodeMp3(buf, 256, (f) => (bar.style.width = `${Math.round(f * 100)}%`));
+      m.close();
+      if (await downloadBlob(mp3, `${safeName(song.name)}.mp3`)) exportedToast(`MP3 exported (${(mp3.size / 1e6).toFixed(1)} MB)`, missing);
+    } catch (e) {
+      toast(`MP3 export failed: ${(e as Error).message}`, 'error', 5000);
+    } finally {
+      m.close();
+    }
   }
 
   async exportWav(): Promise<void> {

@@ -151,7 +151,9 @@ export async function autoRemake(
     const sp = splitParts(r.notes, tl, { offset: off, kicks });
     bass = splitParts(r.struck, tl, { offset: off, kicks }).bass;
     chords = sp.chords;
-    melody = sp.melody;
+    // In the full mix, a "melody" in the voice's range is mostly the vocals transcribed: keep the
+    // lines above them (beat melodies usually sit up there).
+    melody = sp.melody.filter((n) => n.pitch >= 72);
   }
   aborted(signal);
 
@@ -227,7 +229,7 @@ export async function autoRemake(
     const all = finderCandidates(t, false);
     const cands =
       role === 'drums' ? all.map((x) => x.id)
-      : role === 'bass' ? all.filter((x) => x.group === 'Bass').map((x) => x.id)
+      : role === 'bass' ? bassCandidates(t, all.filter((x) => x.group === 'Bass').map((x) => x.id))
       : opts.thorough ? all.map((x) => x.id)
       : SHORTLIST[role];
     try {
@@ -287,16 +289,26 @@ export async function autoRemake(
   mix(0);
   const sound = actions.analyzeReference();
   if (sound) {
-    // Compare over the first hook (or the busiest part): the fullest, most typical stretch.
-    const hook = store.song.sections?.find((s) => s.name === 'Hook');
-    const loop = store.song.loop;
-    const saved = { ...loop };
+    // The remake has no vocals, so match it to the original without them: the separated parts
+    // summed back, over the first hook; or, from the full mix, a stretch without vocals.
+    const secs = store.song.sections ?? [];
+    const pick = stems ? secs.find((s) => s.name === 'Hook') : (secs.find((s) => s.name === 'Outro') ?? secs.find((s, i) => s.name === 'Break' && i > 0) ?? secs.find((s) => s.name === 'Hook'));
+    const saved = { ...store.song.loop };
     store.update((s) => {
-      const start = hook ? hook.tick : 8 * BAR;
-      s.loop = { enabled: true, start: Math.min(start, (s.bars - 4) * BAR), end: Math.min(s.bars * BAR, start + 8 * BAR) };
+      const start = pick ? pick.tick : 8 * BAR;
+      const next = secs.find((x) => x.tick > start)?.tick ?? s.bars * BAR;
+      const end = Math.min(s.bars * BAR, start + 8 * BAR, Math.max(start + 4 * BAR, next));
+      s.loop = { enabled: true, start: Math.min(start, (s.bars - 4) * BAR), end };
     });
-    const changes = await actions.matchMix(sound, (msg) => mix(0.5, msg));
-    store.update((s) => (s.loop = saved));
+    const original = engine.backingBuffer;
+    if (stems) engine.backingBuffer = mixStems([stems.drums, stems.bass, stems.other]);
+    let changes: string[];
+    try {
+      changes = await actions.matchMix(sound, (msg) => mix(0.5, msg));
+    } finally {
+      engine.backingBuffer = original;
+      store.update((s) => (s.loop = saved));
+    }
     if (sound.echo) {
       const lead = store.song.tracks.find((t) => roleOf.get(t.id) === 'melody');
       if (lead) store.update(() => (lead.echo = 0.2));
@@ -305,6 +317,32 @@ export async function autoRemake(
   }
   step('Done', 1);
   return report;
+}
+
+/**
+ * A bass line that lives down in the sub range with held notes is an 808 (or a sub) in nearly every
+ * beat that has one; choosing among those alone keeps a plucked bass from winning on a noisy match.
+ */
+function bassCandidates(t: Track, all: string[]): string[] {
+  const pitches = t.notes.map((n) => n.pitch);
+  const durs = t.notes.map((n) => n.dur);
+  const sub = median(pitches) < 45 && median(durs) >= 96;
+  return sub ? all.filter((id) => /^bass808|^sub$|^deepbass$/.test(id)) : all;
+}
+
+/** Sum some stems back together (the original without its vocals, say). */
+function mixStems(parts: AudioBuffer[]): AudioBuffer {
+  const len = Math.max(...parts.map((p) => p.length));
+  const ch = Math.max(...parts.map((p) => p.numberOfChannels));
+  const out = new AudioBuffer({ length: len, numberOfChannels: ch, sampleRate: parts[0].sampleRate });
+  for (let c = 0; c < ch; c++) {
+    const d = out.getChannelData(c);
+    for (const p of parts) {
+      const s = p.getChannelData(Math.min(c, p.numberOfChannels - 1));
+      for (let i = 0; i < s.length; i++) d[i] += s[i];
+    }
+  }
+  return out;
 }
 
 function median(xs: number[]): number {
