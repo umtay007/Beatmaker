@@ -3,9 +3,10 @@
 Make any beat from scratch in your browser, then turn it into a synced music video.
 
 Beatmaker is a beat maker and a MIDI music-video visualizer (in the spirit of
-[VIDI Studio](https://app.dozingwhale.net/vidi-studio/)) in one app. Every sound is synthesized in
-real time with the Web Audio API, so there are no samples to download. The visualizer draws each
-note of your beat as it plays, and you can export the result as an MP4 or WebM video.
+[VIDI Studio](https://app.dozingwhale.net/vidi-studio/)) in one app. Drums and most instruments are
+synthesized in real time with the Web Audio API; 20 real, recorded instruments stream in on demand
+when you use them. The visualizer draws each note of your beat as it plays, and you can export the
+result as an MP4 or WebM video.
 
 ## Features
 
@@ -18,10 +19,24 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
 - **Start blank and program your own.** Melodic tracks use a piano roll with scale highlighting,
   and drum tracks use a step grid. Both have a velocity lane, box selection, copy/paste, duplicate,
   transpose, nudge, quantize, humanize and undo/redo.
-- **7 synthesized drum kits** (Trap 808, Florida Trap, Boom Bap, Lo-Fi Dusty, House 909, Breaks,
-  Retro 80s) and **24 instruments**: 808, 808 Smooth, 808 Punch (with the kick built in), sub, deep,
-  reese and log-drum basses, pluck, marimba, electric piano, piano, organ, pad, strings, wide dark
-  strings, choir, supersaw, synth lead, sine lead, flute, brass, chiptune, bell and glockenspiel.
+- **66 instruments** in families (Keys, Guitar, Strings, Brass, Woodwind, Bass, Pluck, Mallet, Bell,
+  Pad, Lead, Vocal):
+  - **20 real, sampled instruments**: grand piano, pipe organ, harmonium, acoustic, nylon and clean
+    electric guitar, electric and upright bass, violin, cello, harp, trumpet, trombone, French horn,
+    tuba, saxophone, flute, clarinet, bassoon and xylophone. Only the notes a song uses are
+    downloaded; offline, a matching synth stands in.
+  - **Physically modelled plucked strings**: koto, sitar (with its buzzing bridge), pizzicato strings.
+  - **Mallets and bells**: kalimba, marimba, vibraphone, steel drum, music box, celesta, tubular
+    bells, bell and glockenspiel.
+  - **Keys**: electric piano, Wurlitzer, clavinet, piano, organ, accordion.
+  - **Basses**: 808, 808 Smooth, 808 Punch (with the kick built in), 808 Distorted, sub, deep, reese,
+    FM, acid 303, wobble and log-drum.
+  - **Synths, pads and voices**: pad, strings, wide dark strings, choir, vocal ooh, vocal chop,
+    supersaw, chord stab, synth lead, sine lead, chiptune, plus flute, whistle, harmonica, pan flute
+    and brass.
+- **9 synthesized drum kits** (Trap 808, Florida Trap, Boom Bap, Lo-Fi Dusty, House 909, Breaks,
+  Retro 80s, Acoustic Kit, Afro Percussion) with 20 voices each, including snap, tambourine, congas,
+  bongo, woodblock, triangle, shaker, cowbell, toms, crash and ride.
 - Swing, tempo, key and scale, a loop range, a metronome, and live input from your computer
   keyboard with recording.
 - A song-wide **tuning** control (in cents) and a per-track **fine tune**, for matching recordings
@@ -38,8 +53,8 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
   offset, and *Starter beat* writes a first draft in any style on that tempo, key and length.
 - Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
-  become drum tracks, and GM programs are mapped to the closest built-in instrument. Imports keep
-  tempo changes and key signatures.
+  become drum tracks, and GM programs are mapped to the closest instrument (the real, sampled ones
+  where they exist). Imports keep tempo changes and key signatures.
 - **Visualize a real recording:** import the song's MIDI and load its audio. You hear the
   recording and the video follows the MIDI notes, which is the VIDI workflow.
 
@@ -78,7 +93,8 @@ npm run typecheck
 ```
 
 There are no runtime dependencies. The only dev dependencies are Vite and TypeScript, plus
-`vite-plugin-singlefile` for the single-file build.
+`vite-plugin-singlefile` for the single-file build. The sampled instruments need an internet
+connection the first time a song uses them.
 
 ## How to…
 
@@ -97,6 +113,11 @@ fine-tune the sync with *Audio offset*.
 **Style and export.** In the **Visual** tab, pick a preset and tweak any section. Then use the
 **Export** tab or the **Export video** button in the top bar. Video is recorded in real time, so
 keep the tab visible while it records.
+
+## Credits
+
+The sampled instruments are the [tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
+sample set by Nicholaus Brosowsky (CC BY 3.0), loaded from the jsDelivr CDN.
 
 ## Keyboard shortcuts
 
@@ -126,8 +147,8 @@ the preview falls back to 2D rendering with no post effects.
 ```
 src/
   core/      song model, tempo map + swing timeline, music theory & chord detection, store/undo
-  audio/     drum-kit synthesis, instruments, mixer graph, lookahead scheduler, offline render,
-             tempo detection
+  audio/     drum-kit synthesis, synthesized and sampled instruments, mixer graph, lookahead
+             scheduler, offline render, tempo / key / tuning detection
   beats/     genre-aware beat generator, blank/demo templates
   midi/      Standard MIDI File parser/writer and GM mapping
   visual/    Canvas2D scene, WebGL post-processing, presets/settings, preview player, video export
