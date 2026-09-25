@@ -3,6 +3,7 @@ import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
 import { formatTime } from '../core/timing';
 import { BAR, PPQ, STEP } from '../core/types';
+import { AbPanel } from './abpanel';
 import type { Actions } from './actions';
 import { h, icon, modal, showMenu, type MenuItem } from './dom';
 
@@ -17,6 +18,8 @@ export class TopBar {
   private timeEl: HTMLElement;
   private bbtEl: HTMLElement;
   private bpm: HTMLInputElement;
+  private abBtn: HTMLButtonElement;
+  readonly ab: AbPanel;
   private lastClock = '';
 
   constructor(
@@ -46,6 +49,9 @@ export class TopBar {
     });
     this.bpm.addEventListener('keydown', (e) => e.stopPropagation());
     const tempo = h('label', { class: 'tempo', title: 'Tempo' }, this.bpm, h('span', null, 'BPM'));
+    this.ab = new AbPanel(engine);
+    document.body.append(this.ab.el);
+    this.abBtn = h('button', { class: 'btn ab-btn', hidden: true, title: 'Compare with the original (B switches sides)', onclick: () => this.ab.toggle() }, 'A/B') as HTMLButtonElement;
 
     this.undoBtn = btn('undo', 'Undo (Ctrl+Z)', () => store.undo());
     this.redoBtn = btn('redo', 'Redo (Ctrl+Shift+Z)', () => store.redo());
@@ -69,7 +75,7 @@ export class TopBar {
         h('div', { class: 'brand-logo' }, icon('wave', 17)),
         h('div', null, 'BEATMAKER', h('small', null, 'Beats → music video')),
       ),
-      h('div', { class: 'transport' }, stopBtn, this.playBtn, this.loopBtn, this.recBtn, this.metroBtn, clock, tempo),
+      h('div', { class: 'transport' }, stopBtn, this.playBtn, this.loopBtn, this.recBtn, this.metroBtn, clock, tempo, this.abBtn),
       h('div', { class: 'spacer' }),
       h('div', { class: 'actions' }, this.undoBtn, this.redoBtn, h('span', { class: 'hide-md', style: { width: '6px' } }), gen, fileBtn, exp, help),
     );
@@ -98,9 +104,21 @@ export class TopBar {
     this.undoBtn.disabled = !s.canUndo;
     this.redoBtn.disabled = !s.canRedo;
     if (document.activeElement !== this.bpm) this.bpm.value = String(Math.round(s.song.bpm * 100) / 100);
+    const ab = this.engine.ab;
+    this.abBtn.classList.toggle('on', ab !== 'off');
+    this.abBtn.textContent = ab === 'original' ? 'A/B · Original' : ab === 'remake' ? 'A/B · Remake' : 'A/B';
+    this.ab.sync();
   }
 
+
   frame(): void {
+    const hasRef = !!this.engine.backingBuffer;
+    if (this.abBtn.hidden === hasRef) {
+      this.abBtn.hidden = !hasRef;
+      if (!hasRef) this.ab.close();
+    }
+    this.engine.abFrame();
+    this.ab.frame();
     const sec = this.engine.position();
     const tick = Math.max(0, this.engine.timeline.secToTick(sec));
     const bar = Math.floor(tick / BAR) + 1;
@@ -168,6 +186,7 @@ export function showHelp(): void {
       ...row(['Delete'], 'Delete selection'),
       ...row(['Ctrl', 'Z'], 'Undo  (Ctrl+Shift+Z redo)'),
       ...row(['Ctrl', 'Wheel'], 'Zoom the editor'),
+      ...row(['B'], 'A/B: switch between the original and your remake (with a reference loaded)'),
       ...row(['K'], 'Keyboard mode: play notes with A-row keys (Z–M and Q–U for melodic tracks)'),
     ),
   );

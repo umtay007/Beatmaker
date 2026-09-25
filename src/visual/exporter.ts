@@ -78,6 +78,8 @@ export function exportVideo(
     if (cancelled) return null;
     engine.stop();
     engine.exportMode = true;
+    // The video gets the song as it is set up, never one side of an A/B comparison.
+    engine.setAb('off');
 
     const tl = engine.timeline;
     const song = store.song;

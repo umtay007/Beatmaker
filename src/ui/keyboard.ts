@@ -178,6 +178,9 @@ export function installKeyboard(store: Store, engine: AudioEngine, editor: Edito
       case 'q':
         editor.quantize();
         break;
+      case 'b':
+        actions.switchAb();
+        break;
     }
   });
 

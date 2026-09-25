@@ -95,6 +95,11 @@ export class Graph {
   readonly synthBus: GainNode;
   readonly backing: GainNode;
   readonly out: GainNode;
+  /** A/B switches: the remake (after the master compressor) and the reference, just before the limiter. */
+  readonly mixGate: GainNode;
+  readonly refGate: GainNode;
+  /** Where to measure each side for A/B (before its switch, so the silent side can still be metered). */
+  readonly mixTap: AudioNode;
   readonly reverbIn: GainNode;
   readonly echoIn: GainNode;
   readonly buses = new Map<string, TrackBus>();
@@ -145,8 +150,12 @@ export class Graph {
     this.widthGains = { same, cross };
     this.trim = ctx.createGain();
     merge.connect(this.trim).connect(this.masterIn);
+    // The reference is already mastered: it skips the song's compressor (which would also pump the
+    // remake with the reference's kicks) and only meets the final limiter.
     this.backing = ctx.createGain();
-    this.backing.connect(this.masterIn);
+    this.mixGate = ctx.createGain();
+    this.refGate = ctx.createGain();
+    this.backing.connect(this.refGate);
 
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12;
@@ -161,8 +170,15 @@ export class Graph {
     limiter.attack.value = 0.001;
     limiter.release.value = 0.08;
     this.out = ctx.createGain();
-    if (opts.dynamics === false) this.masterIn.connect(this.out);
-    else this.masterIn.connect(comp).connect(limiter).connect(this.out);
+    if (opts.dynamics === false) {
+      this.masterIn.connect(this.mixGate).connect(this.out);
+      this.refGate.connect(this.out);
+      this.mixTap = this.masterIn;
+    } else {
+      this.masterIn.connect(comp).connect(this.mixGate).connect(limiter).connect(this.out);
+      this.refGate.connect(limiter);
+      this.mixTap = comp;
+    }
 
     this.reverbIn = ctx.createGain();
     const conv = ctx.createConvolver();

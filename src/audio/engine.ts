@@ -1,3 +1,4 @@
+import { AbMeter } from './abmeter';
 import type { Store } from '../core/store';
 import { Timeline } from '../core/timing';
 import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types';
@@ -33,6 +34,15 @@ export class AudioEngine {
   /** Peak envelope of the backing audio (200 values per second) for waveform drawing. */
   backingPeaks: Float32Array | null = null;
   private backingVol = 0.9;
+  /**
+   * A/B listening: hear only the original or only the remake while both keep playing in sync
+   * ('off' = the usual: both, or the original alone when the song's tracks are switched off).
+   */
+  ab: 'off' | 'original' | 'remake' = 'off';
+  /** While comparing, bring the original to the remake's loudness so only the sound differs. */
+  abMatch = true;
+  meter: AbMeter | null = null;
+  private abGainDb = 0;
 
   playing = false;
   /** When true (video export) loop wrapping and latency compensation are disabled. */
@@ -87,6 +97,7 @@ export class AudioEngine {
         this.streamDest = null;
       }
       this.sched = new NoteScheduler(graph, this.kits);
+      this.meter = new AbMeter(ctx, graph.mixTap, graph.backing);
       graph.backing.gain.value = this.backingVol;
       graph.applyMix(this.song, false);
       this.applySynthMute();
@@ -192,9 +203,41 @@ export class AudioEngine {
   }
 
   applySynthMute(): void {
-    if (!this.graph) return;
-    const mute = !!this.backingBuffer && !this.song.synthsWithAudio;
-    this.graph.synthBus.gain.value = mute ? 0 : 1;
+    const g = this.graph;
+    if (!g) return;
+    const ab = this.backingBuffer ? this.ab : 'off';
+    // Comparing keeps the song's tracks running (and metered) even while only the original is heard.
+    const mute = !!this.backingBuffer && !this.song.synthsWithAudio && ab === 'off';
+    g.synthBus.gain.value = mute ? 0 : 1;
+    const t = g.ctx.currentTime;
+    const refDb = ab === 'original' && this.abMatch ? this.abGainDb : 0;
+    g.mixGate.gain.setTargetAtTime(ab === 'original' ? 0 : 1, t, 0.008);
+    g.refGate.gain.setTargetAtTime(ab === 'remake' ? 0 : Math.pow(10, refDb / 20), t, 0.008);
+  }
+
+  /** Switch A/B listening (see `ab`). */
+  setAb(mode: 'off' | 'original' | 'remake'): void {
+    this.ab = this.backingBuffer ? mode : 'off';
+    this.applySynthMute();
+    this.onState?.();
+  }
+
+  /** Run from the UI's animation frame: feeds the A/B meter and follows the loudness match. */
+  abFrame(): void {
+    const m = this.meter;
+    if (!m || !this.backingBuffer) return;
+    m.update(this.playing && !this.exportMode);
+    const db = m.matchDb();
+    if (db === null) return;
+    const next = Math.max(-12, Math.min(12, db));
+    if (Math.abs(next - this.abGainDb) < 0.1) return;
+    this.abGainDb = next;
+    if (this.ab === 'original') this.applySynthMute();
+  }
+
+  /** The dB the original is moved by to match the remake's loudness (null until measured). */
+  abMatchDb(): number | null {
+    return this.meter?.matchDb() ?? null;
   }
 
   songEndSec(): number {
@@ -397,6 +440,8 @@ export class AudioEngine {
     this.backingBuffer = buf;
     this.backingName = file.name;
     this.backingPeaks = peakEnvelope(buf);
+    this.meter?.reset();
+    this.abGainDb = 0;
     this.applySynthMute();
     return buf.duration;
   }
@@ -406,6 +451,7 @@ export class AudioEngine {
     this.backingBuffer = null;
     this.backingName = '';
     this.backingPeaks = null;
+    this.ab = 'off';
     this.applySynthMute();
   }
 

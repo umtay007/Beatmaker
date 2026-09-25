@@ -312,6 +312,16 @@ export class Actions {
     void downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeName(this.store.song.name)}.mid`).then((ok) => ok && toast('MIDI exported', 'ok'));
   }
 
+  /** A/B: flip between hearing the original and the remake (turns comparing on). */
+  switchAb(): void {
+    if (!this.engine.backingBuffer) {
+      toast('Load the original song as a reference first (File → Load reference audio)');
+      return;
+    }
+    this.engine.setAb(this.engine.ab === 'original' ? 'remake' : 'original');
+    toast(this.engine.ab === 'original' ? 'Hearing the original' : 'Hearing your remake');
+  }
+
   /** A .mid file for every track with notes (each keeps the song's tempo, key and markers), plus the whole song, in a ZIP. */
   async exportMidiTracks(): Promise<void> {
     const song = this.store.song;
