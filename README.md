@@ -43,7 +43,10 @@ result as an MP4 or WebM video.
   that aren't at A = 440 Hz or an 808 that sits a little sharp.
 - A **"New part" button** that rewrites a single track in any style.
 - A mixer with volume, pan, reverb send, a tempo-synced **echo** send (1/8, dotted 1/8, 1/4
-  triplet…), mute and solo for each track. Echo and fine tune live under **FX** in the editor bar.
+  triplet…), mute and solo for each track.
+- Per-track **FX** in the editor bar: echo, fine tune, **sidechain ducking** (the track dips on
+  every kick and swells back, like a sidechained compressor, with depth and release), a 3-band
+  **EQ** with a sweepable mid, and a **low-cut / high-cut filter** with resonance.
 
 **Remake an existing beat**
 
@@ -56,7 +59,8 @@ result as an MP4 or WebM video.
   sidechain pumping. It can't name plugins, only what they did. *Match my mix to it* renders your
   song, compares it with the same stretch of the original (use the loop to pick an instrumental
   part) and sets the new **Master** section: a 10-band EQ, stereo width, output level, reverb length
-  and echo timing.
+  and echo timing. If the original pumps, it also ducks your melodic tracks on the kick, adjusting
+  the depth until your render dips as far as the original.
 - Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
   become drum tracks, and GM programs are mapped to the closest instrument (the real, sampled ones

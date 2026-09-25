@@ -35,6 +35,20 @@ export interface Track {
   echo?: number;
   /** Fine tuning of this track in cents (synth tracks). */
   tune?: number;
+  /** Sidechain ducking on the song's kick drum: how far the track dips, in dB (0 = off). */
+  duck?: number;
+  /** How long the ducking takes to swell back, in seconds. */
+  duckRelease?: number;
+  /** Tone controls in dB: low shelf at 150 Hz, a bell at eqMidFreq and a high shelf at 6 kHz. */
+  eqLow?: number;
+  eqMid?: number;
+  eqMidFreq?: number;
+  eqHigh?: number;
+  /** Low-cut and high-cut filter cutoffs in Hz (20 and 20000 = off). */
+  hpf?: number;
+  lpf?: number;
+  /** Resonance of the high-cut filter 0..1. */
+  res?: number;
   mute: boolean;
   solo: boolean;
   /** Whether the track is drawn by the visualizer. */
@@ -83,6 +97,11 @@ export interface MasterSettings {
   /** Reverb length in seconds. */
   reverbSize: number;
 }
+
+/** Filter cutoffs that mean "off", and the default duck release. */
+export const HPF_OFF = 20;
+export const LPF_OFF = 20000;
+export const DUCK_RELEASE = 0.25;
 
 export const DEFAULT_MASTER: MasterSettings = { eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], width: 1, gain: 0, reverbSize: 2.4 };
 

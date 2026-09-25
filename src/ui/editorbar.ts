@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../audio/engine';
 import { GENRES, regeneratePart } from '../beats/generator';
 import type { Store } from '../core/store';
-import { PPQ, STEP, type Track } from '../core/types';
+import { DUCK_RELEASE, HPF_OFF, LPF_OFF, PPQ, STEP, type Track } from '../core/types';
 import type { Actions } from './actions';
 import { h, icon, showMenu, showPopover } from './dom';
 import type { Editor } from './editor';
@@ -24,6 +24,18 @@ const LENGTHS: [number, string][] = [
   [PPQ * 2, '1/2'],
   [PPQ * 4, '1 bar'],
 ];
+
+/** Whether any of the FX popover's settings differ from their defaults. */
+function fxActive(t: Track): boolean {
+  return (
+    (t.echo ?? 0) > 0 ||
+    (t.kind === 'synth' && (t.tune ?? 0) !== 0) ||
+    (t.duck ?? 0) > 0 ||
+    [t.eqLow, t.eqMid, t.eqHigh, t.res].some((v) => (v ?? 0) !== 0) ||
+    (t.hpf ?? HPF_OFF) > HPF_OFF ||
+    (t.lpf ?? LPF_OFF) < LPF_OFF
+  );
+}
 
 export class EditorBar {
   readonly el: HTMLElement;
@@ -84,7 +96,7 @@ export class EditorBar {
     this.rev = mini('Reverb send', 0, 1, 'reverb');
     this.fx = h(
       'button',
-      { class: 'btn btn-ghost', title: 'Echo and fine tuning for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
+      { class: 'btn btn-ghost', title: 'Echo, sidechain ducking, EQ and filter for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
       icon('sliders', 15),
       'FX',
     ) as HTMLButtonElement;
@@ -177,7 +189,7 @@ export class EditorBar {
     this.lenWrap.style.display = t.kind === 'drums' ? 'none' : 'contents';
     if (document.activeElement !== this.pan) this.pan.value = String(t.pan);
     if (document.activeElement !== this.rev) this.rev.value = String(t.reverb);
-    this.fx.classList.toggle('on', (t.echo ?? 0) > 0 || (t.kind === 'synth' && (t.tune ?? 0) !== 0));
+    this.fx.classList.toggle('on', fxActive(t));
     this.paintMini();
     this.follow.classList.toggle('on', ui.follow);
     this.keys.classList.toggle('on', ui.keys);
@@ -188,47 +200,78 @@ export class EditorBar {
     return this.store.song.tracks.find((x) => x.id === id);
   }
 
-  /** Echo send and fine tune for the selected track. */
+  /** Sends, sidechain ducking, tone and filter for the selected track. */
   private fxPopover(anchor: HTMLElement): void {
     const store = this.store;
     const first = store.track;
     if (!first) return;
     const id = first.id;
     const t = () => this.trackById(id) ?? first;
-    const row = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt: (v: number) => string, reset = 0) => {
-      const out = h('output', null, fmt(get()));
-      const r = h('input', { type: 'range', class: 'range', min, max, step, value: get(), 'aria-label': label }) as HTMLInputElement;
-      const paint = () => r.style.setProperty('--pct', `${((Number(r.value) - min) / (max - min)) * 100}%`);
+    interface RowSpec {
+      min: number;
+      max: number;
+      step: number;
+      get: () => number;
+      set: (v: number) => void;
+      fmt: (v: number) => string;
+      reset: number;
+      /** Log-scaled slider (frequencies): the input runs 0..1000. */
+      log?: boolean;
+    }
+    const row = (label: string, o: RowSpec) => {
+      const toX = (v: number) => (o.log ? Math.round((Math.log(v / o.min) / Math.log(o.max / o.min)) * 1000) : v);
+      const fromX = (x: number) => (o.log ? Math.round(o.min * Math.pow(o.max / o.min, x / 1000)) : x);
+      const [lo, hi, step] = o.log ? [0, 1000, 1] : [o.min, o.max, o.step];
+      const out = h('output', null, o.fmt(o.get()));
+      const r = h('input', { type: 'range', class: 'range', min: lo, max: hi, step, value: toX(o.get()), 'aria-label': label }) as HTMLInputElement;
+      const paint = () => r.style.setProperty('--pct', `${((Number(r.value) - lo) / (hi - lo)) * 100}%`);
+      const show = (v: number) => {
+        out.textContent = o.fmt(v);
+        paint();
+        this.fx.classList.toggle('on', fxActive(t()));
+      };
       paint();
       r.addEventListener('pointerdown', () => store.beginGesture());
       r.addEventListener('input', () => {
-        set(Number(r.value));
+        const v = fromX(Number(r.value));
+        o.set(v);
         store.touch();
-        out.textContent = fmt(Number(r.value));
-        paint();
-        const cur = t();
-        this.fx.classList.toggle('on', (cur.echo ?? 0) > 0 || (cur.kind === 'synth' && (cur.tune ?? 0) !== 0));
+        show(v);
       });
       r.addEventListener('change', () => store.endGesture());
       r.addEventListener('dblclick', () => {
-        store.update(() => set(reset));
-        r.value = String(reset);
-        out.textContent = fmt(reset);
-        paint();
+        store.update(() => o.set(o.reset));
+        r.value = String(toX(o.reset));
+        show(o.reset);
       });
       return h('label', { class: 'pop-row' }, label, r, out);
     };
     const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const db = (v: number) => `${v > 0 ? '+' : ''}${v} dB`;
+    const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`) + ' Hz';
+    const gain = (get: () => number | undefined, set: (v: number) => void): RowSpec => ({ min: -12, max: 12, step: 0.5, get: () => get() ?? 0, set, fmt: db, reset: 0 });
     showPopover(
       anchor,
       h(
         'div',
         null,
         h('div', { class: 'pop-title' }, `${first.name} · FX`),
-        row('Echo send', 0, 1, 0.01, () => t().echo ?? 0, (v) => (t().echo = v), pct),
+        row('Echo send', { min: 0, max: 1, step: 0.01, get: () => t().echo ?? 0, set: (v) => (t().echo = v), fmt: pct, reset: 0 }),
         first.kind === 'synth'
-          ? row('Fine tune', -100, 100, 1, () => t().tune ?? 0, (v) => (t().tune = v), (v) => `${v > 0 ? '+' : ''}${v} ct`)
+          ? row('Fine tune', { min: -100, max: 100, step: 1, get: () => t().tune ?? 0, set: (v) => (t().tune = v), fmt: (v) => `${v > 0 ? '+' : ''}${v} ct`, reset: 0 })
           : null,
+        h('div', { class: 'pop-sub' }, 'Sidechain · dips on every kick'),
+        row('Duck', { min: 0, max: 24, step: 0.5, get: () => t().duck ?? 0, set: (v) => (t().duck = v), fmt: (v) => (v > 0 ? `−${v} dB` : 'off'), reset: 0 }),
+        row('Release', { min: 0.05, max: 1, step: 0.01, get: () => t().duckRelease ?? DUCK_RELEASE, set: (v) => (t().duckRelease = v), fmt: (v) => `${Math.round(v * 1000)} ms`, reset: DUCK_RELEASE }),
+        h('div', { class: 'pop-sub' }, 'EQ'),
+        row('Low', gain(() => t().eqLow, (v) => (t().eqLow = v))),
+        row('Mid', gain(() => t().eqMid, (v) => (t().eqMid = v))),
+        row('Mid freq', { min: 150, max: 8000, step: 1, log: true, get: () => t().eqMidFreq ?? 1000, set: (v) => (t().eqMidFreq = v), fmt: hz, reset: 1000 }),
+        row('High', gain(() => t().eqHigh, (v) => (t().eqHigh = v))),
+        h('div', { class: 'pop-sub' }, 'Filter'),
+        row('Low cut', { min: HPF_OFF, max: 2000, step: 1, log: true, get: () => t().hpf ?? HPF_OFF, set: (v) => (t().hpf = v), fmt: (v) => (v <= HPF_OFF ? 'off' : hz(v)), reset: HPF_OFF }),
+        row('High cut', { min: 200, max: LPF_OFF, step: 1, log: true, get: () => t().lpf ?? LPF_OFF, set: (v) => (t().lpf = v), fmt: (v) => (v >= LPF_OFF ? 'off' : hz(v)), reset: LPF_OFF }),
+        row('Resonance', { min: 0, max: 1, step: 0.01, get: () => t().res ?? 0, set: (v) => (t().res = v), fmt: pct, reset: 0 }),
         h('p', { class: 'pop-note' }, 'The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
       ),
     );

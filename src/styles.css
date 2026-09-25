@@ -1150,7 +1150,19 @@ button {
 .popover {
   min-width: 250px;
   max-width: 320px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 12px 14px;
+}
+
+.pop-sub {
+  margin: 12px 0 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--dim);
 }
 
 .pop-title {

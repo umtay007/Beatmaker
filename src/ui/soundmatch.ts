@@ -48,8 +48,8 @@ export function showSoundReport(actions: Actions): void {
     kv('Reverb', r.reverb !== null ? `about ${r.reverb.toFixed(1)} s` : 'no clean tail to measure'),
     kv('Echo / delay', r.echo ? `${r.echo.label} (×${r.echo.strength})` : 'none found'),
     kv('Bass saturation', r.bassHarmonics ? `harmonics ${r.bassHarmonics.map((d, i) => `H${i + 2} ${d}`).join(' · ')} dB` : 'no exposed bass'),
-    kv('Sidechain pumping', r.pump !== null ? `${r.pump} dB on the beat` : 'none'),
-    h('p', { class: 'section-note' }, 'Match renders your song, compares it with the same stretch of the original (up to 30 s), and sets the master EQ, stereo width and level to close the gap. It also copies the reverb length and any echo timing. If the original has vocals, first set the loop to an instrumental part (an intro, break or outro): vocals would otherwise pull the EQ towards the mids.'),
+    kv('Sidechain pumping', r.pump !== null ? `dips ${r.pump} dB after each beat` : 'none'),
+    h('p', { class: 'section-note' }, 'Match renders your song, compares it with the same stretch of the original (up to 30 s), and sets the master EQ, stereo width and level to close the gap. It also copies the reverb length, any echo timing and sidechain pumping (ducking your melodic tracks on the kick). If the original has vocals, first set the loop to an instrumental part (an intro, break or outro): vocals would otherwise pull the EQ towards the mids.'),
     status,
     h('div', { class: 'btn-row' }, matchBtn),
   );

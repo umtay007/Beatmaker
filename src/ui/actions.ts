@@ -1,4 +1,4 @@
-import { analyzeSound, EQ_BANDS, matchGains, mixStats, type SoundReport } from '../audio/analyze';
+import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type SoundReport } from '../audio/analyze';
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { detectAudioKey } from '../audio/key';
@@ -263,7 +263,8 @@ export class Actions {
       return null;
     }
     const s = this.store.song;
-    return analyzeSound(buf, s.bpm, Math.max(0, -s.audioOffset));
+    // Song beat 0 plays at reference time −audioOffset.
+    return analyzeSound(buf, s.bpm, beatPhase(-s.audioOffset, 0, s.bpm));
   }
 
   /**
@@ -287,17 +288,44 @@ export class Actions {
     const goal = mixStats(ref, refFrom, len);
     const master: MasterSettings = { ...DEFAULT_MASTER, eq: [...DEFAULT_MASTER.eq] };
     if (report.reverb !== null) master.reverbSize = Math.round(Math.max(0.8, Math.min(4.5, report.reverb)) * 10) / 10;
+    // Sidechain: if the original pumps, duck the song's melodic tracks on the kick, then correct
+    // the depth from how far the rendered mids dip compared with the original's.
+    const hasKick = song.tracks.some((t) => t.kind === 'drums' && !t.mute && t.notes.some((n) => n.pitch === 35 || n.pitch === 36));
+    const userDucked = song.tracks.filter((t) => (t.duck ?? 0) > 0).map((t) => t.id);
+    const duckIds = report.pump !== null && hasKick ? (userDucked.length ? userDucked : song.tracks.filter((t) => t.kind === 'synth' && t.notes.length).map((t) => t.id)) : [];
+    // In a full mix the dip reads at roughly 0.4× the ducking depth (the kick and undocked parts fill it).
+    const DIP_PER_DB = 0.42;
+    let duck = report.pump !== null ? Math.round(Math.max(3, Math.min(18, report.pump / DIP_PER_DB)) * 2) / 2 : 0;
+    const goalDip = duckIds.length ? pumpDip(ref, refFrom, len, song.bpm, beatPhase(-song.audioOffset, refFrom, song.bpm)) : 0;
+    const tried: [duck: number, dip: number][] = [];
     const render = async (m: MasterSettings) => {
       const copy = cloneSong(song);
       copy.master = m;
-      return mixStats(await renderSong(copy, { from, to: from + len, tail: 0 }), 0, len);
+      for (const t of copy.tracks) if (duckIds.includes(t.id)) t.duck = duck;
+      const buf = await renderSong(copy, { from, to: from + len, tail: 0 });
+      if (duckIds.length) tried.push([duck, pumpDip(buf, 0, len, song.bpm, beatPhase(0, from, song.bpm))]);
+      return mixStats(buf, 0, len);
+    };
+    // Step the depth towards the original's dip, using the measured slope once there are two tries.
+    const fixDuck = () => {
+      if (!tried.length) return;
+      const [d1, p1] = tried[tried.length - 1];
+      let slope = DIP_PER_DB;
+      if (tried.length > 1) {
+        const [d0, p0] = tried[tried.length - 2];
+        const s = (p1 - p0) / (d1 - d0);
+        if (Math.abs(d1 - d0) >= 0.5 && s > 0.1 && s < 1.5) slope = s;
+      }
+      duck = Math.round(Math.max(1, Math.min(24, d1 + (goalDip - p1) / slope)) * 2) / 2;
     };
     onProgress?.('Rendering your mix…');
     let mine = await render(master);
     master.eq = matchGains(goal.bands, mine.bands);
     master.width = Math.round(Math.max(0, Math.min(2.5, Math.pow(10, (goal.width - mine.width) / 20))) * 100) / 100;
+    fixDuck();
     onProgress?.('Refining…');
     mine = await render(master);
+    fixDuck();
     const fix = matchGains(goal.bands, mine.bands);
     master.eq = master.eq.map((g, i) => Math.round(Math.max(-12, Math.min(12, g + fix[i] * 0.7)) * 2) / 2);
     // EQ moves change the side/mid balance too (bass is mono), so correct the width again.
@@ -309,8 +337,11 @@ export class Actions {
     changes.push(big.length ? `EQ: ${big.map(([g, i]) => `${g > 0 ? '+' : ''}${g} dB at ${fmtHz(EQ_BANDS[i])}`).join(', ')}` : 'EQ: already close, only small tweaks');
     changes.push(`Stereo width ×${master.width}`, `Output ${master.gain >= 0 ? '+' : ''}${master.gain} dB`);
     if (report.reverb !== null) changes.push(`Reverb length ${master.reverbSize} s`);
+    if (duckIds.length) changes.push(`Sidechain −${duck} dB on ${duckIds.length === 1 ? song.tracks.find((t) => t.id === duckIds[0])?.name : `${duckIds.length} tracks`}`);
+    else if (report.pump !== null) changes.push('Sidechain: add a kick drum to duck from');
     this.store.update((s) => {
       s.master = master;
+      for (const t of s.tracks) if (duckIds.includes(t.id)) t.duck = duck;
       if (report.echo) {
         s.echoBeats = report.echo.beats;
         if (!s.tracks.some((t) => (t.echo ?? 0) > 0)) {

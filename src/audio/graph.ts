@@ -1,15 +1,28 @@
 import { Timeline } from '../core/timing';
-import type { Note, Song, Track } from '../core/types';
+import { DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
 import { EQ_BANDS } from './analyze';
 import { instrumentFor, type Voice } from './instruments';
 
 export interface TrackBus {
   input: GainNode;
+  /** Tone: low cut → high cut → low shelf → mid bell → high shelf. */
+  hp: BiquadFilterNode;
+  lp: BiquadFilterNode;
+  low: BiquadFilterNode;
+  mid: BiquadFilterNode;
+  high: BiquadFilterNode;
+  /** Sidechain gain, pulled down on every kick. */
+  duck: GainNode;
   vol: GainNode;
   pan: StereoPannerNode;
   send: GainNode;
   echo: GainNode;
+  duckDb: number;
+  duckRelease: number;
 }
+
+/** GM kick drums: they trigger sidechain ducking. */
+const KICKS = new Set([35, 36]);
 
 export interface SchedEvent {
   /** Song time in seconds. */
@@ -171,16 +184,34 @@ export class Graph {
   bus(track: Track): TrackBus {
     let b = this.buses.get(track.id);
     if (!b) {
-      const input = this.ctx.createGain();
-      const vol = this.ctx.createGain();
-      const pan = this.ctx.createStereoPanner();
-      const send = this.ctx.createGain();
-      const echo = this.ctx.createGain();
+      const ctx = this.ctx;
+      const input = ctx.createGain();
+      const filter = (type: BiquadFilterType, f: number) => {
+        const n = ctx.createBiquadFilter();
+        n.type = type;
+        n.frequency.value = f;
+        n.gain.value = 0;
+        return n;
+      };
+      // Open filters (0 Hz high-pass, Nyquist low-pass) and 0 dB shelves are exact pass-throughs.
+      const hp = filter('highpass', 0);
+      hp.Q.value = -3; // Butterworth (Q is in dB for these two)
+      const lp = filter('lowpass', ctx.sampleRate / 2);
+      lp.Q.value = -3;
+      const low = filter('lowshelf', 150);
+      const mid = filter('peaking', 1000);
+      mid.Q.value = 0.9;
+      const high = filter('highshelf', 6000);
+      const duck = ctx.createGain();
+      const vol = ctx.createGain();
+      const pan = ctx.createStereoPanner();
+      const send = ctx.createGain();
+      const echo = ctx.createGain();
       echo.gain.value = 0;
-      input.connect(vol).connect(pan).connect(this.synthBus);
+      input.connect(hp).connect(lp).connect(low).connect(mid).connect(high).connect(duck).connect(vol).connect(pan).connect(this.synthBus);
       pan.connect(send).connect(this.reverbIn);
       pan.connect(echo).connect(this.echoIn);
-      b = { input, vol, pan, send, echo };
+      b = { input, hp, lp, low, mid, high, duck, vol, pan, send, echo, duckDb: 0, duckRelease: DUCK_RELEASE };
       this.buses.set(track.id, b);
     }
     return b;
@@ -207,21 +238,69 @@ export class Graph {
     const echoTime = Math.min(4, ((song.echoBeats ?? 0.75) * 60) / song.bpm);
     if (smooth) this.echoDelay.delayTime.setTargetAtTime(echoTime, now, 0.05);
     else this.echoDelay.delayTime.value = echoTime;
+    const nyquist = this.ctx.sampleRate / 2;
+    const set = (p: AudioParam, v: number) => (smooth ? p.setTargetAtTime(v, now, 0.015) : (p.value = v));
+    // An open filter jumps straight to its exact pass-through value (easing towards 0 Hz never lands).
+    const snap = (p: AudioParam, v: number) => {
+      p.cancelScheduledValues(now);
+      p.setValueAtTime(v, now);
+    };
     for (const t of song.tracks) {
       const b = this.bus(t);
       const audible = !t.mute && (!anySolo || t.solo);
-      const g = audible ? t.volume : 0;
-      if (smooth) {
-        b.vol.gain.setTargetAtTime(g, now, 0.015);
-        b.pan.pan.setTargetAtTime(t.pan, now, 0.015);
-        b.send.gain.setTargetAtTime(t.reverb, now, 0.015);
-        b.echo.gain.setTargetAtTime(t.echo ?? 0, now, 0.015);
-      } else {
-        b.vol.gain.value = g;
-        b.pan.pan.value = t.pan;
-        b.send.gain.value = t.reverb;
-        b.echo.gain.value = t.echo ?? 0;
+      set(b.vol.gain, audible ? t.volume : 0);
+      set(b.pan.pan, t.pan);
+      set(b.send.gain, t.reverb);
+      set(b.echo.gain, t.echo ?? 0);
+      const hpf = t.hpf ?? HPF_OFF;
+      const lpf = t.lpf ?? LPF_OFF;
+      if (hpf <= HPF_OFF) snap(b.hp.frequency, 0);
+      else set(b.hp.frequency, hpf);
+      if (lpf >= LPF_OFF) snap(b.lp.frequency, nyquist);
+      else set(b.lp.frequency, Math.min(lpf, nyquist));
+      set(b.lp.Q, -3 + (t.res ?? 0) * 19);
+      set(b.low.gain, t.eqLow ?? 0);
+      set(b.mid.gain, t.eqMid ?? 0);
+      set(b.mid.frequency, t.eqMidFreq ?? 1000);
+      set(b.high.gain, t.eqHigh ?? 0);
+      const duck = t.duck ?? 0;
+      if (duck <= 0 && b.duckDb > 0) {
+        // Ducking switched off: drop the dips already queued.
+        b.duck.gain.cancelScheduledValues(now);
+        b.duck.gain.setTargetAtTime(1, now, 0.01);
       }
+      b.duckDb = duck;
+      b.duckRelease = t.duckRelease ?? DUCK_RELEASE;
+    }
+  }
+
+  /**
+   * Dip every ducked track (except the kick's own) at context time `at`, like a sidechain
+   * compressor: a fast attack, a short hold, then a swell back that is linear in dB over the
+   * release time. The swell is a chain of setTarget steps rather than a ramp or value curve, so a
+   * kick that lands mid-swell can cancel the steps still to come without touching the running one.
+   */
+  duckAt(sourceId: string, at: number, vel: number): void {
+    const STEPS = 4;
+    for (const [id, b] of this.buses) {
+      if (id === sourceId || b.duckDb <= 0) continue;
+      const g = b.duck.gain;
+      const depth = b.duckDb * Math.min(1, vel / 0.6);
+      const rel = b.duckRelease;
+      g.cancelScheduledValues(at);
+      g.setTargetAtTime(Math.pow(10, -depth / 20), at, 0.002);
+      const hold = at + Math.min(0.03, rel * 0.1);
+      for (let k = 0; k < STEPS; k++) {
+        g.setTargetAtTime(Math.pow(10, (-depth * (1 - (k + 1) / STEPS)) / 20), hold + (k * rel) / STEPS, rel / STEPS / 2.5);
+      }
+    }
+  }
+
+  /** Cancel all queued ducking (stop / seek). */
+  resetDucks(t: number): void {
+    for (const b of this.buses.values()) {
+      b.duck.gain.cancelScheduledValues(t);
+      b.duck.gain.setTargetAtTime(1, t, 0.01);
     }
   }
 }
@@ -296,6 +375,7 @@ export class NoteScheduler {
       g.gain.value = Math.pow(Math.max(0.05, vel), 1.2);
       src.connect(g).connect(bus.input);
       src.start(at);
+      if (KICKS.has(pitch) && !track.mute) this.graph.duckAt(track.id, at, vel);
       // Closed hat chokes a ringing open hat.
       if (pitch === 42 || pitch === 46) {
         const prev = this.openHats.get(track.id);
@@ -339,5 +419,6 @@ export class NoteScheduler {
     for (const p of this.active) p.voice.kill(t);
     this.active = [];
     this.openHats.clear();
+    this.graph.resetDucks(t);
   }
 }

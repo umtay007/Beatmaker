@@ -1,5 +1,5 @@
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -275,6 +275,15 @@ export function normalizeSong(song: Partial<Song>): Song {
         reverb: num(t.reverb, 0.15, 0, 1),
         echo: num(t.echo, 0, 0, 1),
         tune: Math.round(num(t.tune, 0, -100, 100)),
+        duck: num(t.duck, 0, 0, 30),
+        duckRelease: num(t.duckRelease, DUCK_RELEASE, 0.03, 1.5),
+        eqLow: num(t.eqLow, 0, -18, 18),
+        eqMid: num(t.eqMid, 0, -18, 18),
+        eqMidFreq: num(t.eqMidFreq, 1000, 100, 10000),
+        eqHigh: num(t.eqHigh, 0, -18, 18),
+        hpf: num(t.hpf, HPF_OFF, HPF_OFF, 5000),
+        lpf: num(t.lpf, LPF_OFF, 100, LPF_OFF),
+        res: num(t.res, 0, 0, 1),
         mute: !!t.mute,
         solo: !!t.solo,
         visible: t.visible ?? true,

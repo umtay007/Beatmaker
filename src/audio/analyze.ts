@@ -274,11 +274,14 @@ function bassHarmonics(m: Mono): number[] | null {
   return [2, 3, 4, 5].map((h) => Math.round(10 * Math.log10(peakNear(f0k * h) / (f0 + 1e-12) + 1e-12)));
 }
 
-/** Sidechain pumping: sustained mid content ducking right after each beat and swelling back. */
-function pumping(m: Mono, bpm: number, firstBeat: number): number | null {
-  // Band-pass the mids (RBJ biquad around 800 Hz, about 250 Hz – 2.5 kHz).
-  const w0 = (2 * Math.PI * 800) / m.sr;
-  const alpha = Math.sin(w0) / (2 * 0.5);
+/**
+ * Level of the upper mids (dB) folded onto one beat, 12 bins from the beat on. The band (an RBJ
+ * band-pass around 2 kHz, about 1–4 kHz) sits above a kick's body, whose tail would otherwise fill
+ * the very dip that sidechaining leaves behind it.
+ */
+function pumpProfile(m: Mono, bpm: number, firstBeat: number): number[] {
+  const w0 = (2 * Math.PI * 2000) / m.sr;
+  const alpha = Math.sin(w0) / (2 * 0.7);
   const a0 = 1 + alpha;
   const b0 = alpha / a0;
   const a1 = (-2 * Math.cos(w0)) / a0;
@@ -303,19 +306,47 @@ function pumping(m: Mono, bpm: number, firstBeat: number): number | null {
   const sum = new Float64Array(bins);
   const cnt = new Float64Array(bins);
   for (let i = 0; i < env.length; i++) {
-    const t = i * 0.01 - firstBeat;
-    if (t < 0) continue;
-    const ph = (t / beat) % 1;
+    const ph = ((((i * 0.01 - firstBeat) / beat) % 1) + 1) % 1;
     const k = Math.min(bins - 1, Math.floor(ph * bins));
     sum[k] += env[i];
     cnt[k] += 1;
   }
-  const prof = Array.from(sum, (s, k) => s / Math.max(1, cnt[k]));
-  const minK = prof.indexOf(Math.min(...prof));
-  const depth = Math.max(...prof) - prof[minK];
-  // Pumping: the dip sits in the first quarter of the beat and the level recovers towards the end.
-  const recovers = prof[bins - 1] > prof[minK] + depth * 0.6 && prof[Math.min(bins - 1, minK + 4)] > prof[minK];
-  return minK <= bins / 4 && recovers && depth > 3 ? Math.round(depth * 10) / 10 : null;
+  return Array.from(sum, (s, k) => s / Math.max(1, cnt[k]));
+}
+
+/**
+ * Pumping shape of a beat profile: how far the level sits just after the beat (the first third)
+ * below the end of the beat, and whether it looks like sidechaining: loudest again by the end of
+ * the beat (off-beat stabs peak mid-beat instead) and rising out of the dip (chords struck on the
+ * beat decay instead).
+ */
+function pumpShape(prof: number[]): { dip: number; pumps: boolean } {
+  const early = Math.min(...prof.slice(0, 4));
+  const minK = prof.indexOf(early);
+  const late = prof.slice(7).reduce((a, b) => a + b, 0) / (prof.length - 7);
+  const top = Math.max(...prof.slice(1));
+  const dip = late - early;
+  return { dip, pumps: dip > 2.5 && late > top - 2 && prof[Math.min(prof.length - 1, minK + 4)] > early + 0.3 * dip };
+}
+
+/** Sidechain pumping: the dip in dB if sustained parts duck after every beat and swell back. */
+function pumping(m: Mono, bpm: number, firstBeat: number): number | null {
+  const { dip, pumps } = pumpShape(pumpProfile(m, bpm, firstBeat));
+  return pumps ? Math.round(dip * 10) / 10 : null;
+}
+
+/**
+ * How far the upper mids dip after the beat (dB): what sidechain ducking changes, for matching
+ * its depth. `firstBeat` is the time of any beat relative to `from`.
+ */
+export function pumpDip(buf: AudioBuffer, from: number, seconds: number, bpm: number, firstBeat: number): number {
+  return pumpShape(pumpProfile(prepare(buf, from, seconds), bpm, firstBeat)).dip;
+}
+
+/** Time of the first beat at or after `t`, given a beat at time `anchor` (constant tempo). */
+export function beatPhase(anchor: number, t: number, bpm: number): number {
+  const beat = 60 / bpm;
+  return ((((anchor - t) % beat) + beat) % beat);
 }
 
 export function analyzeSound(buf: AudioBuffer, bpm: number, firstBeat: number): SoundReport {
@@ -381,6 +412,6 @@ export function analyzeSound(buf: AudioBuffer, bpm: number, firstBeat: number): 
     if (odd > -18) notes.push(`Saturated bass: strong odd harmonics (3rd at ${harm[1]} dB), like a distorted or clipped 808.`);
     else if (odd < -30) notes.push('Clean, sine-like bass.');
   }
-  if (pump !== null) notes.push(`Sidechain pumping: the mids duck about ${pump} dB on every beat.`);
+  if (pump !== null) notes.push(`Sidechain pumping: the music dips about ${pump} dB after every beat and swells back (a kick-triggered compressor or volume shaper).`);
   return { bands, loudness, width, reverb, echo, bassHarmonics: harm, pump, notes };
 }
