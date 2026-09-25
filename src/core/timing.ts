@@ -44,6 +44,17 @@ export class Timeline {
     return base + (p < half ? (p * mid) / half : mid + ((p - half) * (eighth - mid)) / half);
   }
 
+  /** Inverse of swingTick(). */
+  unswingTick(tick: number): number {
+    if (this.swingMid === PPQ / 4) return tick;
+    const eighth = PPQ / 2;
+    const half = PPQ / 4;
+    const base = Math.floor(tick / eighth) * eighth;
+    const p = tick - base;
+    const mid = this.swingMid;
+    return base + (p < mid ? (p * half) / mid : half + ((p - mid) * half) / (eighth - mid));
+  }
+
   /** Tick → seconds without swing (for grid lines). */
   rawTickToSec(tick: number): number {
     const segs = this.segs;

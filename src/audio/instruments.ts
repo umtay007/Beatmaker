@@ -309,7 +309,9 @@ export const INSTRUMENTS: InstrumentDef[] = [
       const o = v.osc('sine');
       // A quiet octave partial stands in for the even harmonics of asymmetric saturation.
       const o2 = v.osc('sine', 2);
-      const amp = v.gain(0);
+      // No initial .value here: setting it adds an automation event at currentTime, which would
+      // overlap the gain curve below whenever a note is scheduled slightly late.
+      const amp = ctx.createGain();
       if (a.glideFrom !== undefined) {
         amp.gain.setValueAtTime(0, a.time);
         amp.gain.linearRampToValueAtTime(a.vel * 0.7, a.time + 0.004);

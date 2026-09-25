@@ -19,6 +19,8 @@ export class AudioEngine {
   ctx: AudioContext | null = null;
   graph: Graph | null = null;
   /** Look-ahead delay of the master compressor and limiter, in seconds. */
+  /** Whether play() was given an explicit end (exports), so length edits don't move it. */
+  private untilExplicit = false;
   private chainLatency = 0;
   sched: NoteScheduler | null = null;
   analyser: AnalyserNode | null = null;
@@ -146,15 +148,24 @@ export class AudioEngine {
       void this.ensureKits();
     }
     if (this.playing && oldKey !== this.tlKey && this.ctx) {
-      // Tempo or swing changed while playing: keep the musical position.
-      const now = this.ctx.currentTime;
-      const pos = this.rawPosition(now);
+      // Tempo or swing changed while playing: keep the musical position. Anchor after any segment
+      // that is already queued (a loop wrap in the next few ms) so nothing is scheduled twice.
+      const at = Math.max(this.ctx.currentTime, this.segs[this.segs.length - 1].ctx);
+      const pos = this.rawPosition(at);
       const newPos = this.tl.rawTickToSec(oldTl.secToTick(pos));
-      const newSched = this.tl.rawTickToSec(oldTl.secToTick(this.schedSong));
-      this.segs.push({ ctx: now, song: newPos });
+      // Notes are scheduled up to a note tick, not a time: map that tick through both swing warps
+      // so no note is repeated (swing up) or skipped (swing down).
+      const noteTick = oldTl.unswingTick(oldTl.secToTick(this.schedSong));
+      const newSched = this.tl.tickToSec(noteTick);
+      this.segs.push({ ctx: at, song: newPos });
       this.schedSong = Math.max(newPos, newSched);
-      this.untilSec = this.songEndSec();
-      this.startBacking(now, newPos);
+      if (!this.untilExplicit) this.untilSec = this.songEndSec();
+      this.startBacking(at, newPos);
+    } else if (this.playing && !this.untilExplicit) {
+      // Length changed while playing: follow the new end of the song.
+      const end = this.songEndSec();
+      if (end > this.untilSec) this.stopCtx = null;
+      this.untilSec = end;
     }
   }
 
@@ -213,6 +224,7 @@ export class AudioEngine {
     this.segs = [{ ctx: start, song: from }];
     this.schedSong = from;
     this.untilSec = until ?? this.songEndSec();
+    this.untilExplicit = until !== undefined;
     this.stopCtx = null;
     this.playing = true;
     this.startBacking(start, from);
@@ -268,7 +280,9 @@ export class AudioEngine {
     for (let guard = 0; guard < 16; guard++) {
       const seg = this.segs[this.segs.length - 1];
       const loop = this.loopRange();
-      const looping = !!loop && seg.song < loop.end - 1e-4;
+      // Only wrap if the playhead has not passed the loop end yet: turning the loop on (or moving
+      // its end) behind the playhead plays on to the end instead of wrapping into the past.
+      const looping = !!loop && seg.song < loop.end - 1e-4 && this.schedSong <= loop.end + 1e-6;
       const boundary = looping ? loop!.end : this.untilSec;
       const songAtHorizon = seg.song + (horizon - seg.ctx);
       const upTo = Math.min(songAtHorizon, boundary);
@@ -299,10 +313,18 @@ export class AudioEngine {
 
   private scheduleRange(events: SchedEvent[], from: number, to: number, seg: Segment): void {
     const sched = this.sched!;
+    const now = this.ctx!.currentTime;
     for (let i = lowerBound(events, from); i < events.length && events[i].t < to; i++) {
       const ev = events[i];
       const at = seg.ctx + (ev.t - seg.song);
-      sched.play(ev.track, ev.note.pitch, ev.note.vel, at, Math.max(0.02, ev.end - ev.t), ev.glideFrom);
+      // After a long main-thread stall, drop notes that are well overdue rather than firing a burst.
+      if (at < now - 0.05) continue;
+      try {
+        sched.play(ev.track, ev.note.pitch, ev.note.vel, Math.max(at, now), Math.max(0.02, ev.end - ev.t), ev.glideFrom);
+      } catch (e) {
+        // One bad voice must not stall the scheduler (it would re-schedule this range forever).
+        console.warn('Could not schedule a note', e);
+      }
     }
     if (this.store.ui.metronome && !this.exportMode) this.scheduleClicks(from, to, seg);
   }
