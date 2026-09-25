@@ -167,36 +167,34 @@ function decodeText(bytes: Uint8Array): string {
 // ---------------------------------------------------------------------------------------------
 // General MIDI ↔ instrument mapping
 
+/** General MIDI program → the closest instrument; real (sampled) ones where they exist. */
+const GM_MAP: [number, string][] = [
+  [2, 'spiano'], [3, 'piano'], [5, 'epiano'], [7, 'clav'], [8, 'celesta'], [9, 'glock'], [10, 'musicbox'], [11, 'vibes'],
+  [12, 'marimba'], [13, 'sxylo'], [14, 'tubular'], [15, 'koto'], [18, 'organ'], [19, 'sorgan'], [20, 'sharmonium'],
+  [21, 'accordion'], [22, 'harmonica'], [23, 'accordion'], [24, 'snylon'], [25, 'sguitar'], [31, 'selectric'],
+  [32, 'scontrabass'], [37, 'sebass'], [38, 'fmbass'], [39, 'reese'], [41, 'sviolin'], [42, 'scello'], [43, 'scontrabass'],
+  [44, 'strings'], [45, 'pizz'], [46, 'sharp'], [47, 'deepbass'], [48, 'strings'], [49, 'darkstrings'], [51, 'strings'],
+  [52, 'choir'], [54, 'ooh'], [55, 'stab'], [56, 'strumpet'], [57, 'strombone'], [58, 'stuba'], [59, 'strumpet'],
+  [60, 'shorn'], [63, 'brass'], [67, 'ssax'], [69, 'sclarinet'], [70, 'sbassoon'], [71, 'sclarinet'], [74, 'sflute'],
+  [77, 'panflute'], [79, 'whistle'], [80, 'chip'], [81, 'lead'], [82, 'flute'], [83, 'panflute'], [84, 'lead'], [85, 'ooh'],
+  [86, 'supersaw'], [87, 'lead'], [90, 'pad'], [91, 'choir'], [97, 'pad'], [98, 'bell'], [103, 'pad'], [104, 'sitar'],
+  [107, 'koto'], [108, 'kalimba'], [109, 'harmonica'], [110, 'sviolin'], [111, 'sclarinet'], [112, 'glock'], [113, 'musicbox'],
+  [114, 'steeldrum'], [115, 'marimba'], [118, 'logdrum'], [119, 'pad'], [127, 'pluck'],
+];
+
 export function gmToInstrument(program: number): string {
-  if (program <= 3) return 'piano';
-  if (program <= 5) return 'epiano';
-  if (program <= 7) return 'piano';
-  if (program === 8 || program === 9) return 'glock';
-  if (program <= 11) return 'bell';
-  if (program <= 13) return 'marimba';
-  if (program <= 15) return 'bell';
-  if (program <= 23) return 'organ';
-  if (program <= 31) return 'pluck';
-  if (program <= 37) return 'deepbass';
-  if (program <= 39) return 'reese';
-  if (program <= 51) return 'strings';
-  if (program <= 54) return 'choir';
-  if (program === 55) return 'brass';
-  if (program <= 63) return 'brass';
-  if (program <= 71) return 'lead';
-  if (program <= 79) return 'flute';
-  if (program === 80) return 'chip';
-  if (program <= 87) return 'lead';
-  if (program <= 103) return 'pad';
-  if (program <= 111) return 'pluck';
-  if (program <= 119) return 'marimba';
+  for (const [upTo, id] of GM_MAP) if (program <= upTo) return id;
   return 'pluck';
 }
 
 const INSTRUMENT_TO_GM: Record<string, number> = {
-  bass808: 38, bass808s: 38, bass808p: 38, sub: 38, deepbass: 33, reese: 39, logdrum: 116, pluck: 25, marimba: 12,
-  epiano: 4, piano: 0, organ: 16, pad: 89, strings: 48, darkstrings: 49, choir: 52, supersaw: 81, lead: 81, sinelead: 80,
-  flute: 73, brass: 61, chip: 80, bell: 14, glock: 9,
+  bass808: 38, bass808s: 38, bass808p: 38, bass808d: 38, sub: 38, deepbass: 33, reese: 39, logdrum: 116, pluck: 25,
+  marimba: 12, epiano: 4, piano: 0, organ: 16, pad: 89, strings: 48, darkstrings: 49, choir: 52, supersaw: 81, lead: 81,
+  sinelead: 80, flute: 73, brass: 61, chip: 80, bell: 14, glock: 9, spiano: 0, sorgan: 19, sharmonium: 20, sguitar: 25,
+  snylon: 24, selectric: 27, sebass: 33, scontrabass: 32, sviolin: 40, scello: 42, sharp: 46, strumpet: 56, strombone: 57,
+  shorn: 60, stuba: 58, ssax: 65, sflute: 73, sclarinet: 71, sbassoon: 70, sxylo: 13, koto: 107, sitar: 104, pizz: 45,
+  kalimba: 108, musicbox: 10, steeldrum: 114, vibes: 11, celesta: 8, tubular: 14, clav: 7, wurli: 4, accordion: 21,
+  acid: 38, wobble: 39, fmbass: 38, stab: 55, ooh: 53, vocalchop: 54, whistle: 78, harmonica: 22, panflute: 75,
 };
 
 const DRUM_NAME_RULES: [RegExp, number][] = [
