@@ -1,3 +1,5 @@
+import { loadUserFont, userFont } from './userfonts';
+import { playSoundFont } from './soundfont';
 import { buildFx, fxShape, type FxChain } from './trackfx';
 import { AUTO_PARAMS, lanes, valueAt, type AutoParamDef } from '../core/automation';
 import { Timeline } from '../core/timing';
@@ -543,6 +545,16 @@ export class NoteScheduler {
         this.chops.set(track.id, { voice, t: at });
       }
       this.track(voice, dur === null ? Infinity : at + dur + 4);
+      return voice;
+    }
+    if (track.instrument === 'soundfont') {
+      const sf = userFont(track.soundfont);
+      if (!sf) {
+        if (track.soundfont) void loadUserFont(track.soundfont);
+        return null;
+      }
+      const voice = playSoundFont(ctx, bus.input, sf, track.soundfont!.preset, { time: at, pitch: pitch + tune, dur, vel, glideFrom: glideFrom === undefined ? undefined : glideFrom + tune });
+      if (voice) this.track(voice, dur === null ? Infinity : at + dur + 8);
       return voice;
     }
     const inst = instrumentFor(track.instrument);

@@ -1,3 +1,4 @@
+import { showRemake } from './remakeui';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
@@ -80,6 +81,7 @@ export class TopBar {
       h('div', { class: 'actions' }, this.undoBtn, this.redoBtn, h('span', { class: 'hide-md', style: { width: '6px' } }), gen, fileBtn, exp, help),
     );
 
+    window.addEventListener('beatmaker:ab-open', () => this.ab.open());
     store.on('ui', () => this.sync());
     store.on('song', () => this.sync());
     store.on('history', () => this.sync());
@@ -150,6 +152,7 @@ export class TopBar {
       '-',
       { label: 'Import MIDI…', icon: 'upload', action: () => a.pickAndOpen('.mid,.midi,audio/midi') },
       { label: 'Load reference audio…', icon: 'wave', action: () => a.pickAndOpen('') },
+      { label: 'Remake a song automatically…', icon: 'sparkle', action: () => showRemake(this.store, this.engine, a, () => this.ab.open()) },
       { label: 'Load drum pack…', icon: 'drum', hint: 'any sample pack', action: () => a.loadDrumPack() },
       '-',
       { label: 'Export video', icon: 'film', action: () => a.exportVideo() },

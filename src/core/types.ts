@@ -54,6 +54,8 @@ export interface Track {
   res?: number;
   /** The sound and settings of a sampler track (instrument 'sampler'). */
   sampler?: SamplerSettings;
+  /** The user's soundfont a track plays (instrument 'soundfont'). */
+  soundfont?: SoundfontSettings;
   /** Colour effects after the EQ (see TrackFx). */
   fx?: TrackFx;
   /** Automation lanes: breakpoints that move a setting over time (they override its fixed value). */
@@ -81,6 +83,19 @@ export type AutoParam = 'volume' | 'pan' | 'lpf' | 'hpf' | 'reverb' | 'echo';
 export interface AutoPoint {
   tick: number;
   value: number;
+}
+
+/** A user's SF2 / SF3 file or SFZ instrument, kept in this browser's library. */
+export interface SoundfontSettings {
+  /** Library id of the .sf2/.sf3 file, or of the .sfz text. */
+  file: string;
+  /** Its file name. */
+  name: string;
+  /** Index into the soundfont's presets (sorted by bank, then program), and that preset's name. */
+  preset: number;
+  presetName: string;
+  /** SFZ: library ids of its sample files, by path relative to the .sfz. */
+  samples?: Record<string, string>;
 }
 
 export type SamplerMode = 'pitch' | 'slice' | 'loop';

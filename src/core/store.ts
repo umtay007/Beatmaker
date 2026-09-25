@@ -1,6 +1,6 @@
 import { AUTO_PARAMS } from './automation';
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type Song, type Track, type TrackFx } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type SoundfontSettings, type Song, type Track, type TrackFx } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -277,6 +277,21 @@ function normalizeAutomation(v: unknown): Track['automation'] {
   return Object.keys(out).length ? out : undefined;
 }
 
+function normalizeSoundfont(v: unknown): SoundfontSettings | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.file !== 'string' || !o.file) return undefined;
+  const samples: Record<string, string> = {};
+  if (o.samples && typeof o.samples === 'object') for (const [k, id] of Object.entries(o.samples as Record<string, unknown>)) if (typeof id === 'string') samples[k] = id;
+  return {
+    file: o.file,
+    name: typeof o.name === 'string' ? o.name : 'Soundfont',
+    preset: Math.max(0, Math.round(num(o.preset, 0, 0, 100000))),
+    presetName: typeof o.presetName === 'string' ? o.presetName : '',
+    ...(Object.keys(samples).length ? { samples } : {}),
+  };
+}
+
 function normalizeFx(v: unknown): TrackFx | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const o = v as Record<string, unknown>;
@@ -356,6 +371,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         lpf: num(t.lpf, LPF_OFF, 100, LPF_OFF),
         res: num(t.res, 0, 0, 1),
         sampler: normalizeSampler(t.sampler),
+        soundfont: normalizeSoundfont(t.soundfont),
         fx: normalizeFx(t.fx),
         automation: normalizeAutomation(t.automation),
         mute: !!t.mute,

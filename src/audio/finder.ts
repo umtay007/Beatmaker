@@ -54,7 +54,7 @@ export interface FinderOptions {
 /** Everything the finder can try on a track: drum kits for drums, instruments otherwise. */
 export function finderCandidates(track: Track, recordedOnly = false): FinderCandidate[] {
   if (track.kind === 'drums') return KITS.map((k) => ({ id: k.id, label: k.label, group: k.group ?? 'Synthesized', recorded: (k.group ?? 'Synthesized') !== 'Synthesized' })).filter((c) => !recordedOnly || c.recorded);
-  return INSTRUMENTS.filter((i) => i.id !== 'sampler' && (!recordedOnly || i.sampled)).map((i) => ({ id: i.id, label: i.label, group: i.group, recorded: !!i.sampled }));
+  return INSTRUMENTS.filter((i) => i.id !== 'sampler' && i.id !== 'soundfont' && (!recordedOnly || i.sampled)).map((i) => ({ id: i.id, label: i.label, group: i.group, recorded: !!i.sampled }));
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { showRemake } from './remakeui';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
@@ -356,9 +357,10 @@ export class Inspector {
     });
     this.body.append(
       this.section('Backing audio (sync any song)', [
-        h('p', { class: 'section-note' }, 'Remake a beat by ear: load the original track, detect its tempo, then program drums and notes along with it (its waveform shows behind the editor). Or import a song’s MIDI plus its audio to visualize the real recording.'),
+        h('p', { class: 'section-note' }, 'Remake a beat by ear: load the original track, detect its tempo, then program drums and notes along with it (its waveform shows behind the editor). Or let “Remake automatically” do all of it. Or import a song’s MIDI plus its audio to visualize the real recording.'),
         nameEl,
         h('div', { class: 'btn-row' }, loadBtn, removeBtn),
+        h('button', { class: 'btn btn-hot btn-block', title: 'Tempo, key, drums, bass, chords, melody, instruments, levels, sections and mix, from the original', onclick: () => showRemake(s, this.engine, a, () => window.dispatchEvent(new Event('beatmaker:ab-open'))) }, icon('sparkle', 15), 'Remake automatically…'),
         h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo, key & align grid'),
         h('button', { class: 'btn btn-block', title: 'Measure the EQ, compression, width, reverb, echo, saturation and pumping of the original, and match your mix to it', onclick: () => showSoundReport(a) }, icon('wave', 15), 'Analyze sound & match mix…'),
         h('button', { class: 'btn btn-block', title: 'Write the original’s drums, bass, chords and melody into tracks', onclick: () => (this.engine.backingBuffer ? showTranscriber(a, s) : a.analyzeReference()) }, icon('music', 15), 'Transcribe drums & notes…'),

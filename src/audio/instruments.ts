@@ -590,6 +590,9 @@ for (const def of SAMPLED) {
   });
 }
 
+// A soundfont the user loaded (see userfonts.ts; the scheduler handles it directly).
+INSTRUMENTS.push({ id: 'soundfont', label: 'Soundfont (SF2 / SFZ)…', group: 'Sampler', octave: 4, build: () => ({ release: () => {}, kill: () => {} }) });
+
 // The sampler plays the track's own sound (see sampler.ts; the scheduler handles it directly).
 INSTRUMENTS.push({ id: 'sampler', label: 'Sampler (your sound)', group: 'Sampler', octave: 3, build: () => ({ release: () => {}, kill: () => {} }) });
 

@@ -1,3 +1,4 @@
+import { newSoundfontTrack } from './soundfontui';
 import type { AudioEngine } from '../audio/engine';
 import { KIT_BY_ID, KITS } from '../audio/drums';
 import { GROUPS, INSTRUMENT_BY_ID, INSTRUMENTS } from '../audio/instruments';
@@ -284,6 +285,7 @@ export class TracksPanel {
       if (group && i.group !== group) items.push('-');
       group = i.group;
       if (i.id === 'sampler') items.push({ label: 'Sampler…', hint: 'your own sound, loop or chop', icon: 'upload', action: () => void newSamplerTrack(this.store, this.engine, this.nextColor()) });
+      else if (i.id === 'soundfont') items.push({ label: 'Soundfont…', hint: 'your .sf2 / .sfz', icon: 'upload', action: () => void newSoundfontTrack(this.store, this.engine, this.nextColor()) });
       else items.push({ label: i.label, hint: i.group, action: () => this.addTrack('synth', i.id) });
     }
     showMenu(anchor, items);

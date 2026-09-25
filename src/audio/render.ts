@@ -1,3 +1,4 @@
+import { ensureUserFonts } from './userfonts';
 import { Timeline } from '../core/timing';
 import type { Song } from '../core/types';
 import { loadKit } from './drums';
@@ -29,7 +30,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const graph = new Graph(ctx, { dynamics });
   graph.applyMix(song, false, tl.secToTick(opts.from));
   graph.out.connect(ctx.destination);
-  await Promise.all([ensureSongSamples(song.tracks), ensureSamplerFiles(song.tracks)]);
+  await Promise.all([ensureSongSamples(song.tracks), ensureSamplerFiles(song.tracks), ensureUserFonts(song.tracks)]);
   const kits: KitBuffers = new Map();
   for (const id of new Set(song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument))) {
     kits.set(id, await loadKit(id, sr));

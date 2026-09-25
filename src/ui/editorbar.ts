@@ -1,3 +1,4 @@
+import { chooseSoundfont, chooseSoundfontPreset } from './soundfontui';
 import { showFinder } from './finderui';
 import { fxShape } from '../audio/trackfx';
 import { KITS } from '../audio/drums';
@@ -57,6 +58,7 @@ export class EditorBar {
   private rev: HTMLInputElement;
   private fx: HTMLButtonElement;
   private sample: HTMLButtonElement;
+  private preset: HTMLButtonElement;
   private follow: HTMLButtonElement;
   private keys: HTMLButtonElement;
   private instKind = '';
@@ -75,6 +77,11 @@ export class EditorBar {
       if (this.inst.value === LOAD_PACK) {
         this.inst.value = t.instrument;
         actions.loadDrumPack();
+        return;
+      }
+      if (this.inst.value === 'soundfont' && !t.soundfont) {
+        this.inst.value = t.instrument;
+        void chooseSoundfont(store, engine, t.id);
         return;
       }
       if (this.inst.value === 'sampler' && !t.sampler) {
@@ -125,6 +132,15 @@ export class EditorBar {
       icon('wave', 15),
       'Sample',
     ) as HTMLButtonElement;
+    this.preset = h(
+      'button',
+      { class: 'btn btn-ghost', title: 'Choose another preset of this soundfont', onclick: () => {
+        const t = store.track;
+        if (t) void chooseSoundfontPreset(store, engine, t.id);
+      } },
+      icon('piano', 15),
+      h('span', null, 'Preset'),
+    ) as HTMLButtonElement;
     this.fx = h(
       'button',
       { class: 'btn btn-ghost', title: 'Echo, colour effects (saturation, compressor, chorus, tape wobble, lo-fi, width), sidechain ducking, EQ and filter for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
@@ -159,6 +175,7 @@ export class EditorBar {
         if (t) showFinder(store, engine, t.id);
       } }, icon('search', 16)),
       this.sample,
+      this.preset,
       h('div', { class: 'divider' }),
       h('span', { class: 'lbl hide-md' }, 'Grid'),
       this.grid,
@@ -217,6 +234,8 @@ export class EditorBar {
     }
     this.inst.value = t.instrument;
     this.sample.style.display = t.instrument === 'sampler' ? '' : 'none';
+    this.preset.style.display = t.instrument === 'soundfont' ? '' : 'none';
+    this.preset.lastChild!.textContent = t.soundfont?.presetName || 'Preset';
     this.grid.value = String(ui.grid);
     if (![...this.grid.options].some((o) => o.value === String(ui.grid))) this.grid.value = String(STEP);
     if (![...this.len.options].some((o) => o.value === String(ui.noteLength))) {

@@ -1,3 +1,5 @@
+import { loadUserFont } from '../audio/userfonts';
+import { newSoundfontTrack } from './soundfontui';
 import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type SoundReport } from '../audio/analyze';
 import { KIT_BY_ID, registerKit } from '../audio/drums';
 import { userKitDef } from '../audio/packs';
@@ -195,15 +197,17 @@ export class Actions {
     const tracks = this.store.song.tracks;
     const missing = tracks.filter((t) => t.kind === 'drums' && !KIT_BY_ID.has(t.instrument));
     for (const t of tracks) if (t.instrument === 'sampler' && t.sampler && !(await loadSamplerFile(t.sampler.file))) missing.push(t);
+    for (const t of tracks) if (t.instrument === 'soundfont' && t.soundfont && !(await loadUserFont(t.soundfont))) missing.push(t);
     if (missing.length) {
-      toast(`Opened ${fileName}. ${missing.map((t) => `“${t.name}”`).join(', ')} used sounds that aren't saved in this browser (a drum pack or a sampler sound). Load them again: File → Load drum pack…, or the Sample button.`, 'info', 7000);
+      toast(`Opened ${fileName}. ${missing.map((t) => `“${t.name}”`).join(', ')} used sounds that aren't saved in this browser (a drum pack, a sampler sound or a soundfont). Load them again: File → Load drum pack…, the Sample button, or pick the soundfont again.`, 'info', 7000);
     } else toast(`Opened ${fileName}`, 'ok');
   }
 
   /** Work out what a file is from its name, MIME type or first bytes (files may have no extension). */
-  private async sniff(file: File): Promise<'midi' | 'project' | 'bundle' | 'audio' | 'image' | 'unknown'> {
+  private async sniff(file: File): Promise<'midi' | 'project' | 'bundle' | 'audio' | 'image' | 'soundfont' | 'unknown'> {
     const name = file.name.toLowerCase();
     if (/\.zip$/.test(name)) return 'bundle';
+    if (/\.(sf2|sf3)$/.test(name)) return 'soundfont';
     if (/\.(mid|midi|kar)$/.test(name)) return 'midi';
     if (/\.json$/.test(name)) return 'project';
     if (file.type.startsWith('audio/') || file.type.startsWith('video/') || /\.(mp3|wav|m4a|ogg|oga|flac|aac|opus|webm|mp4|aif|aiff)$/.test(name)) return 'audio';
@@ -212,6 +216,7 @@ export class Actions {
     const str = (o: number, n: number) => String.fromCharCode(...b.slice(o, o + n));
     if (str(0, 4) === 'MThd' || (str(0, 4) === 'RIFF' && str(8, 4) === 'RMID')) return 'midi';
     if (str(0, 4) === 'RIFF' && str(8, 4) === 'WEBP') return 'image';
+    if (str(0, 4) === 'RIFF' && str(8, 4) === 'sfbk') return 'soundfont';
     if ((b[0] === 0x89 && str(1, 3) === 'PNG') || (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) || str(0, 4) === 'GIF8') return 'image';
     if (str(0, 4) === 'RIFF' || str(0, 3) === 'ID3' || str(0, 4) === 'OggS' || str(0, 4) === 'fLaC' || str(4, 4) === 'ftyp' || str(0, 4) === 'FORM') return 'audio';
     if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio'; // MPEG / AAC frame sync
@@ -227,6 +232,7 @@ export class Actions {
     if (kind === 'project') return this.importProjectFile(file);
     if (kind === 'bundle') return this.importBundle(file);
     if (kind === 'image') return this.setBackgroundImage(file);
+    if (kind === 'soundfont') return newSoundfontTrack(this.store, this.engine, this.palette()[this.store.song.tracks.length % 8], file);
     // Audio, or unknown: let the browser's decoder decide.
     return this.importAudioFile(file, kind === 'unknown');
   }
@@ -268,7 +274,11 @@ export class Actions {
     const json = JSON.stringify({ format: 'beatmaker', version: 1, song, visual: this.store.visual });
     const base = safeName(song.name);
     const kits = (await Promise.all([...new Set(song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument))].map(getKit))).filter((k) => k !== undefined);
-    const ids = new Set([...kits.flatMap((k) => Object.values(k.files)), ...song.tracks.filter((t) => t.instrument === 'sampler' && t.sampler).map((t) => t.sampler!.file)]);
+    const ids = new Set([
+      ...kits.flatMap((k) => Object.values(k.files)),
+      ...song.tracks.filter((t) => t.instrument === 'sampler' && t.sampler).map((t) => t.sampler!.file),
+      ...song.tracks.filter((t) => t.instrument === 'soundfont' && t.soundfont).flatMap((t) => [t.soundfont!.file, ...Object.values(t.soundfont!.samples ?? {})]),
+    ]);
     const sounds = (await Promise.all([...ids].map(getStoredFile))).filter((f) => f !== undefined);
     if (!sounds.length) {
       void downloadBlob(new Blob([json], { type: 'application/json' }), `${base}.beatmaker.json`);

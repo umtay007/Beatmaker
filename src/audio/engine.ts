@@ -1,3 +1,4 @@
+import { ensureUserFonts } from './userfonts';
 import { AbMeter } from './abmeter';
 import type { Store } from '../core/store';
 import { Timeline } from '../core/timing';
@@ -123,7 +124,7 @@ export class AudioEngine {
   ensureKits(sampleWait = 4): Promise<void> {
     if (!this.ctx) return Promise.resolve();
     const wait = (p: Promise<void>) => (sampleWait === Infinity ? p : Promise.race([p, new Promise<void>((r) => setTimeout(r, sampleWait * 1000))]));
-    return Promise.all([this.loadStandIns(), wait(this.loadKits()), wait(ensureSongSamples(this.song.tracks)), ensureSamplerFiles(this.song.tracks)]).then(() => undefined);
+    return Promise.all([this.loadStandIns(), wait(this.loadKits()), wait(ensureSongSamples(this.song.tracks)), ensureSamplerFiles(this.song.tracks), ensureUserFonts(this.song.tracks)]).then(() => undefined);
   }
 
   /** Give recorded kits that are still downloading their synthesized fallback voices meanwhile. */

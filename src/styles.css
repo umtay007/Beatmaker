@@ -39,6 +39,11 @@
   box-sizing: border-box;
 }
 
+/* Elements hidden with the attribute stay hidden whatever display their class gives them. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -1906,4 +1911,87 @@ button {
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+/* Auto remake */
+.remake-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.remake-opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.remake-opt span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.remake-opt small {
+  color: var(--dim);
+  font-size: 11.5px;
+}
+
+.remake-opt.off {
+  opacity: 0.55;
+}
+
+.remake-status {
+  min-height: 1.3em;
+}
+
+.remake-summary {
+  margin: 12px 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* Soundfont picker */
+.sf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.sf-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.sf-item:hover,
+.sf-item.on {
+  background: var(--raised);
+}
+
+.sf-num {
+  min-width: 44px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
