@@ -117,9 +117,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.25,
     ninth: 0,
-    chord: { style: 'sustain', inst: ['pad', 'strings', 'choir'], octave: 4 },
-    bass: { style: '808', inst: ['bass808'] },
-    melody: { style: 'bells', inst: ['bell', 'pluck', 'flute', 'glock', 'piano'], octave: 5, pentatonic: true },
+    chord: { style: 'sustain', inst: ['pad', 'strings', 'choir', 'sviolin', 'darkstrings', 'spiano'], octave: 4 },
+    bass: { style: '808', inst: ['bass808', 'bass808p'] },
+    melody: { style: 'bells', inst: ['bell', 'pluck', 'flute', 'glock', 'piano', 'spiano', 'musicbox', 'sflute', 'kalimba', 'sguitar'], octave: 5, pentatonic: true },
     kickPattern: ['x.........x.....', 'x......x..x.....', 'x.....x...x..x..', 'x..x......x....x', 'x.......x.x.....'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -170,9 +170,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.75,
     ninth: 0.25,
-    chord: { style: 'halves', inst: ['epiano', 'piano', 'strings'], octave: 4 },
-    bass: { style: 'follow', inst: ['deepbass', 'sub'] },
-    melody: { style: 'sparse', inst: ['flute', 'piano', 'strings', 'brass'], octave: 5, pentatonic: true },
+    chord: { style: 'halves', inst: ['epiano', 'piano', 'strings', 'spiano', 'wurli', 'sharp'], octave: 4 },
+    bass: { style: 'follow', inst: ['deepbass', 'sub', 'scontrabass', 'sebass'] },
+    melody: { style: 'sparse', inst: ['flute', 'piano', 'strings', 'brass', 'ssax', 'strumpet', 'vibes', 'sflute'], octave: 5, pentatonic: true },
     kickPattern: ['x.........x.x...', 'x......x..x.....', 'x.x.......x.....', 'x.........xx....'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -204,9 +204,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 1,
     ninth: 0.55,
-    chord: { style: 'lofi', inst: ['epiano', 'piano'], octave: 4 },
-    bass: { style: 'root', inst: ['sub', 'deepbass'] },
-    melody: { style: 'sparse', inst: ['glock', 'flute', 'marimba', 'pluck'], octave: 5, pentatonic: true },
+    chord: { style: 'lofi', inst: ['epiano', 'piano', 'wurli', 'spiano', 'snylon'], octave: 4 },
+    bass: { style: 'root', inst: ['sub', 'deepbass', 'scontrabass'] },
+    melody: { style: 'sparse', inst: ['glock', 'flute', 'marimba', 'pluck', 'vibes', 'kalimba', 'sguitar', 'musicbox'], octave: 5, pentatonic: true },
     extra: { style: 'sustain', inst: ['pad', 'choir'], octave: 4, name: 'Pad' },
     kickPattern: ['x......x..x.....', 'x.....x....x....', 'x.........x.....', 'x..x......x.....'],
     drums(c, t, kick) {
@@ -235,9 +235,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.7,
     ninth: 0.2,
-    chord: { style: 'stabs', inst: ['organ', 'piano', 'supersaw'], octave: 4 },
-    bass: { style: 'offbeat', inst: ['deepbass', 'sub'] },
-    melody: { style: 'hook', inst: ['pluck', 'bell', 'marimba'], octave: 5, pentatonic: true },
+    chord: { style: 'stabs', inst: ['organ', 'piano', 'supersaw', 'stab', 'spiano'], octave: 4 },
+    bass: { style: 'offbeat', inst: ['deepbass', 'sub', 'fmbass', 'acid'] },
+    melody: { style: 'hook', inst: ['pluck', 'bell', 'marimba', 'vocalchop', 'steeldrum'], octave: 5, pentatonic: true },
     extra: { style: 'sustain', inst: ['strings', 'pad'], octave: 4, name: 'Strings' },
     kickPattern: ['x...x...x...x...'],
     drums(c, t, kick) {
@@ -269,9 +269,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.1,
     ninth: 0,
-    chord: { style: 'sustain', inst: ['strings', 'choir', 'pad'], octave: 4 },
-    bass: { style: '808', inst: ['bass808'] },
-    melody: { style: 'dark', inst: ['piano', 'bell', 'flute', 'strings'], octave: 5, pentatonic: false },
+    chord: { style: 'sustain', inst: ['strings', 'choir', 'pad', 'sviolin', 'scello', 'darkstrings'], octave: 4 },
+    bass: { style: '808', inst: ['bass808', 'bass808d', 'bass808p'] },
+    melody: { style: 'dark', inst: ['piano', 'bell', 'flute', 'strings', 'spiano', 'pizz', 'sviolin'], octave: 5, pentatonic: false },
     kickPattern: ['x......x..x.....', 'x.........x..x..', 'x.....x...x.....'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -311,9 +311,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.2,
     ninth: 0,
-    chord: { style: 'clave', inst: ['pluck', 'marimba', 'piano'], octave: 4 },
+    chord: { style: 'clave', inst: ['pluck', 'marimba', 'piano', 'sguitar', 'snylon'], octave: 4 },
     bass: { style: 'follow', inst: ['bass808', 'deepbass'] },
-    melody: { style: 'hook', inst: ['lead', 'flute', 'bell'], octave: 5, pentatonic: false },
+    melody: { style: 'hook', inst: ['lead', 'flute', 'bell', 'whistle', 'steeldrum'], octave: 5, pentatonic: false },
     kickPattern: ['x...x...x...x...'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -333,7 +333,7 @@ export const GENRES: GenreDef[] = [
     label: 'Afrobeats',
     bpm: [100, 112],
     swing: [0.1, 0.25],
-    kit: 'house',
+    kit: 'afro',
     scales: ['major', 'minor', 'dorian'],
     progressions: [
       [0, 4, 5, 3],
@@ -343,9 +343,9 @@ export const GENRES: GenreDef[] = [
     ],
     seventh: 0.4,
     ninth: 0.2,
-    chord: { style: 'clave', inst: ['epiano', 'marimba', 'organ'], octave: 4 },
-    bass: { style: 'clave', inst: ['logdrum', 'deepbass'] },
-    melody: { style: 'hook', inst: ['flute', 'marimba', 'pluck', 'glock'], octave: 5, pentatonic: true },
+    chord: { style: 'clave', inst: ['epiano', 'marimba', 'organ', 'sguitar', 'kalimba', 'steeldrum'], octave: 4 },
+    bass: { style: 'clave', inst: ['logdrum', 'deepbass', 'sebass'] },
+    melody: { style: 'hook', inst: ['flute', 'marimba', 'pluck', 'glock', 'kalimba', 'steeldrum', 'panflute', 'sxylo'], octave: 5, pentatonic: true },
     kickPattern: ['x......x..x.....', 'x..x......x..x..', 'x.....x...x.....'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -376,8 +376,8 @@ export const GENRES: GenreDef[] = [
     seventh: 0.5,
     ninth: 0.3,
     chord: { style: 'sustain', inst: ['pad', 'strings'], octave: 4 },
-    bass: { style: 'rolling', inst: ['reese'] },
-    melody: { style: 'arp', inst: ['pluck', 'bell', 'glock'], octave: 5, pentatonic: true },
+    bass: { style: 'rolling', inst: ['reese', 'wobble'] },
+    melody: { style: 'arp', inst: ['pluck', 'bell', 'glock', 'vocalchop'], octave: 5, pentatonic: true },
     kickPattern: ['x.........x.....', 'x.........x..x..', 'x.x.......x.....'],
     drums(c, t, kick) {
       const r = c.rng;
@@ -410,7 +410,7 @@ export const GENRES: GenreDef[] = [
     seventh: 0.15,
     ninth: 0.1,
     chord: { style: 'sustain', inst: ['pad', 'supersaw'], octave: 4 },
-    bass: { style: 'pulse', inst: ['deepbass', 'sub'] },
+    bass: { style: 'pulse', inst: ['deepbass', 'sub', 'fmbass'] },
     melody: { style: 'lead', inst: ['lead', 'chip', 'supersaw'], octave: 5, pentatonic: false },
     extra: { style: 'arp', inst: ['chip', 'pluck'], octave: 5, name: 'Arp' },
     kickPattern: ['x...x...x...x...', 'x.......x.x.....'],
@@ -807,7 +807,8 @@ export function generateSong(opts: GenerateOptions): Song {
   if (parts.bass) {
     const inst = pick(rng, g.bass.inst);
     const notes = bassPart(rng, g.bass.style, chords, bars, kickFor, (b) => energy(b) !== 'intro', scale);
-    tracks.push(makeTrack(inst === 'bass808' ? '808' : 'Bass', 'synth', inst, palette[ci++ % palette.length], notes, { volume: inst === 'bass808' ? 0.8 : 0.75, reverb: 0 }));
+    const is808 = inst.startsWith('bass808');
+    tracks.push(makeTrack(is808 ? '808' : 'Bass', 'synth', inst, palette[ci++ % palette.length], notes, { volume: is808 ? 0.8 : 0.75, reverb: 0 }));
   }
   if (parts.chords) {
     const inst = pick(rng, g.chord.inst);

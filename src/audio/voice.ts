@@ -49,7 +49,11 @@ export class VoiceKit {
     if (wave) o.setPeriodicWave(wave);
     else o.type = type;
     o.detune.value = detune;
-    this.freq(o.frequency, ratio);
+    if (this.f * ratio >= this.ctx.sampleRate * 0.49) {
+      // A partial above the Nyquist limit would alias (or be clamped): leave it silent.
+      o.frequency.value = 0;
+      if (type !== 'sine') o.type = 'sine';
+    } else this.freq(o.frequency, ratio);
     o.start(this.a.time);
     this.srcs.push(o);
     return o;
