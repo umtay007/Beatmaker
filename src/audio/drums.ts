@@ -6,14 +6,15 @@
 interface KickP { kind: 'kick'; f0: number; f1: number; pitchDecay: number; decay: number; click: number; drive: number; tone?: number }
 interface SnareP { kind: 'snare'; tone: number; toneDecay: number; noise: number; noiseDecay: number; hp: number; lp: number; body?: number }
 interface ClapP { kind: 'clap'; freq: number; decay: number; spread: number; q?: number }
-interface HatP { kind: 'hat'; decay: number; hp: number; bp: number; tone?: number; noiseMix?: number }
+interface HatP { kind: 'hat'; decay: number; hp: number; bp: number; tone?: number; noiseMix?: number; steep?: boolean }
 interface CymbalP { kind: 'cymbal'; decay: number; hp: number; bell?: number; noiseMix?: number }
 interface TomP { kind: 'tom'; f0: number; f1: number; decay: number; noise?: number }
-interface RimP { kind: 'rim'; freq: number; decay: number }
+interface RimP { kind: 'rim'; freq: number; decay: number; q?: number; sub?: number }
 interface ShakerP { kind: 'shaker'; decay: number; bp: number; attack?: number }
 interface BellP { kind: 'cowbell'; f1: number; f2: number; decay: number }
 
-export type DrumP = KickP | SnareP | ClapP | HatP | CymbalP | TomP | RimP | ShakerP | BellP;
+/** `level` scales a voice after peak normalization, to balance quiet voices inside a kit. */
+export type DrumP = (KickP | SnareP | ClapP | HatP | CymbalP | TomP | RimP | ShakerP | BellP) & { level?: number };
 
 export interface KitDef {
   id: string;
@@ -60,10 +61,10 @@ export const KITS: KitDef[] = [
   }),
   kit('florida', 'Florida Trap', {
     36: { f0: 190, f1: 50, pitchDecay: 0.04, decay: 0.42, click: 0.6, drive: 1.8 },
-    38: { tone: 480, toneDecay: 0.05, noise: 1.1, noiseDecay: 0.1, hp: 1300, lp: 15000, body: 0.45 },
-    39: { freq: 2500, decay: 0.12, spread: 0.008, q: 0.55 },
-    37: { freq: 2400, decay: 0.04 },
-    42: { decay: 0.04, hp: 6500, bp: 9500, noiseMix: 0.55 },
+    38: { tone: 330, toneDecay: 0.05, noise: 1, noiseDecay: 0.045, hp: 1200, lp: 13000, body: 0.7 },
+    39: { freq: 2500, decay: 0.055, spread: 0.005, q: 0.55 },
+    37: { freq: 2400, decay: 0.11, q: 8, sub: 0.1, level: 0.15 },
+    42: { decay: 0.11, hp: 7000, bp: 9000, noiseMix: 0.55, steep: true, level: 0.4 },
     46: { decay: 0.3, hp: 6500, bp: 9500, noiseMix: 0.55 },
   }),
   kit(
@@ -267,14 +268,16 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       const o2 = ctx.createOscillator();
       o2.type = 'square';
       o2.frequency.value = p.freq * 0.47;
+      const o2g = ctx.createGain();
+      o2g.gain.value = p.sub ?? 1;
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
       bp.frequency.value = p.freq;
-      bp.Q.value = 2;
+      bp.Q.value = p.q ?? 2;
       const g = ctx.createGain();
       decayEnv(g.gain, t, 1.4, p.decay);
       o.connect(bp);
-      o2.connect(bp);
+      o2.connect(o2g).connect(bp);
       bp.connect(g).connect(out);
       o.start(t);
       o2.start(t);
@@ -301,7 +304,14 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       hp.frequency.value = p.hp;
       const g = ctx.createGain();
       decayEnv(g.gain, t, 1.1, p.decay);
-      bus.connect(bp).connect(hp).connect(g).connect(out);
+      bus.connect(bp).connect(hp);
+      if (p.steep) {
+        // A second high-pass stage for a thin, bright hat with almost nothing below ~5 kHz.
+        const hp2 = ctx.createBiquadFilter();
+        hp2.type = 'highpass';
+        hp2.frequency.value = p.hp;
+        hp.connect(hp2).connect(g).connect(out);
+      } else hp.connect(g).connect(out);
       break;
     }
     case 'cymbal': {
@@ -415,7 +425,7 @@ function voiceLength(p: DrumP): number {
   }
 }
 
-function postProcess(buf: AudioBuffer, kitDef: KitDef): void {
+function postProcess(buf: AudioBuffer, kitDef: KitDef, level = 1): void {
   const d = buf.getChannelData(0);
   const crush = kitDef.crush;
   let peak = 0;
@@ -431,7 +441,7 @@ function postProcess(buf: AudioBuffer, kitDef: KitDef): void {
     }
   }
   for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
-  const g = (kitDef.gain ?? 1) * (peak > 0.95 ? 0.95 / peak : 1);
+  const g = (kitDef.gain ?? 1) * level * (peak > 0.95 ? 0.95 / peak : 1);
   if (g !== 1) for (let i = 0; i < d.length; i++) d[i] *= g;
   // Tiny fade-out to avoid clicks.
   const fade = Math.min(d.length, Math.floor(buf.sampleRate * 0.01));
@@ -453,7 +463,7 @@ export function loadKit(id: string, sampleRate: number): Promise<Map<number, Aud
           const ctx = new OfflineAudioContext(1, len, sampleRate);
           renderVoice(ctx, vp);
           const buf = await ctx.startRendering();
-          postProcess(buf, def);
+          postProcess(buf, def, vp.level);
           out.set(Number(pitch), buf);
         }),
       );
