@@ -701,6 +701,7 @@ export class Inspector {
       this.section('Audio & data', [
         h('div', { class: 'btn-row' },
           h('button', { class: 'btn', onclick: () => a.exportWav() }, icon('wave', 15), 'Export WAV'),
+          h('button', { class: 'btn', onclick: () => a.exportStems(), title: 'A WAV per track plus the full mix, in a ZIP' }, icon('wave', 15), 'Export stems'),
           h('button', { class: 'btn', onclick: () => a.exportMidi() }, icon('music', 15), 'Export MIDI'),
           h('button', { class: 'btn', onclick: () => a.saveProject() }, icon('download', 15), 'Save project'),
           h('button', { class: 'btn', onclick: () => a.pickAndOpen('.json,application/json') }, icon('file', 15), 'Open project'),

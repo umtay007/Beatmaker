@@ -49,12 +49,54 @@ export interface Track {
   lpf?: number;
   /** Resonance of the high-cut filter 0..1. */
   res?: number;
+  /** The sound and settings of a sampler track (instrument 'sampler'). */
+  sampler?: SamplerSettings;
   mute: boolean;
   solo: boolean;
   /** Whether the track is drawn by the visualizer. */
   visible: boolean;
   notes: Note[];
 }
+
+export type SamplerMode = 'pitch' | 'slice' | 'loop';
+
+export interface SamplerSettings {
+  /** Library file id of the sound (stored in this browser). */
+  file: string;
+  /** Its original file name. */
+  name: string;
+  mode: SamplerMode;
+  /** Pitch mode: the key that plays the sound at its own pitch. */
+  root: number;
+  /** Trim: the part of the sound used, 0..1 of its length. */
+  start: number;
+  end: number;
+  /** Slice mode: equal slices when `points` is empty. */
+  slices: number;
+  /** Slice mode: detected chop points in seconds (from the transients). */
+  points?: number[];
+  /** Loop mode: how many beats the trimmed sound spans (sets the playback speed). */
+  beats: number;
+  /** Level in dB. */
+  gain: number;
+  /** Attack and release in seconds. */
+  attack: number;
+  release: number;
+  reverse: boolean;
+}
+
+export const DEFAULT_SAMPLER: Omit<SamplerSettings, 'file' | 'name'> = {
+  mode: 'pitch',
+  root: 60,
+  start: 0,
+  end: 1,
+  slices: 8,
+  beats: 4,
+  gain: 0,
+  attack: 0.002,
+  release: 0.05,
+  reverse: false,
+};
 
 export interface TempoChange {
   tick: number;

@@ -1,5 +1,5 @@
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type SamplerSettings, type Song, type Track } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -241,6 +241,27 @@ function num(v: unknown, fallback: number, lo = -Infinity, hi = Infinity): numbe
   return typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
 }
 
+function normalizeSampler(v: Partial<SamplerSettings> | undefined): SamplerSettings | undefined {
+  if (!v || typeof v.file !== 'string' || !v.file) return undefined;
+  const d = DEFAULT_SAMPLER;
+  const start = num(v.start, d.start, 0, 0.99);
+  return {
+    file: v.file,
+    name: typeof v.name === 'string' ? v.name : 'Sample',
+    mode: v.mode === 'slice' || v.mode === 'loop' ? v.mode : 'pitch',
+    root: Math.round(num(v.root, d.root, 0, 127)),
+    start,
+    end: num(v.end, d.end, start + 0.01, 1),
+    slices: Math.round(num(v.slices, d.slices, 1, 32)),
+    points: Array.isArray(v.points) ? v.points.filter((p) => Number.isFinite(p) && p >= 0).slice(0, 32).sort((a, b) => a - b) : undefined,
+    beats: num(v.beats, d.beats, 0.25, 256),
+    gain: num(v.gain, d.gain, -24, 12),
+    attack: num(v.attack, d.attack, 0, 2),
+    release: num(v.release, d.release, 0, 4),
+    reverse: !!v.reverse,
+  };
+}
+
 /**
  * Fill in missing fields and clamp bad values in older, foreign or hand-edited song JSON, so a
  * broken project can't produce NaN times or gains that stop playback.
@@ -284,6 +305,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         hpf: num(t.hpf, HPF_OFF, HPF_OFF, 5000),
         lpf: num(t.lpf, LPF_OFF, 100, LPF_OFF),
         res: num(t.res, 0, 0, 1),
+        sampler: normalizeSampler(t.sampler),
         mute: !!t.mute,
         solo: !!t.solo,
         visible: t.visible ?? true,

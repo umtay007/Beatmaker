@@ -1702,3 +1702,41 @@ button {
 .btn.danger {
   color: var(--danger);
 }
+
+/* Sampler editor */
+.sampler-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sampler-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.sampler-wave {
+  display: block;
+  width: 100%;
+  height: 120px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.sampler-editor .btn-row {
+  margin: 6px 0 10px;
+}
+
+.sampler-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 18px;
+  margin-top: 6px;
+}

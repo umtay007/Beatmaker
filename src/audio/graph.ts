@@ -2,6 +2,7 @@ import { Timeline } from '../core/timing';
 import { DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
 import { EQ_BANDS } from './analyze';
 import { instrumentFor, type Voice } from './instruments';
+import { playSampler } from './sampler';
 
 export interface TrackBus {
   input: GainNode;
@@ -102,9 +103,15 @@ export class Graph {
   private reverbSize = 2.4;
   /** Song tuning in semitones, added to every synth note. */
   tuning = 0;
+  /** Song tempo (loops in the sampler are stretched to it). */
+  bpm = 120;
   private readonly echoDelay: DelayNode;
 
-  constructor(readonly ctx: BaseAudioContext) {
+  /** `dynamics: false` leaves out the master compressor and limiter (for stems that add up to the mix). */
+  constructor(
+    readonly ctx: BaseAudioContext,
+    opts: { dynamics?: boolean } = {},
+  ) {
     this.masterIn = ctx.createGain();
     this.masterIn.gain.value = 0.9;
     this.synthBus = ctx.createGain();
@@ -151,7 +158,8 @@ export class Graph {
     limiter.attack.value = 0.001;
     limiter.release.value = 0.08;
     this.out = ctx.createGain();
-    this.masterIn.connect(comp).connect(limiter).connect(this.out);
+    if (opts.dynamics === false) this.masterIn.connect(this.out);
+    else this.masterIn.connect(comp).connect(limiter).connect(this.out);
 
     this.reverbIn = ctx.createGain();
     const conv = ctx.createConvolver();
@@ -222,6 +230,7 @@ export class Graph {
     const anySolo = song.tracks.some((t) => t.solo);
     const now = this.ctx.currentTime;
     this.tuning = (song.tuning ?? 0) / 100;
+    this.bpm = song.bpm;
     const m = song.master;
     if (m) {
       const set = (p: AudioParam, v: number) => (smooth ? p.setTargetAtTime(v, now, 0.03) : (p.value = v));
@@ -355,6 +364,8 @@ interface Playing {
 /** Turns note events into sound on a Graph. */
 export class NoteScheduler {
   private openHats = new Map<string, { g: GainNode; src: AudioBufferSourceNode; t: number }>();
+  /** Sampler tracks in slice or loop mode: the last chop, cut off by the next one. */
+  private chops = new Map<string, { voice: Voice; t: number }>();
   private active: Playing[] = [];
 
   constructor(
@@ -399,8 +410,22 @@ export class NoteScheduler {
       this.track(voice, at + buf.duration);
       return voice;
     }
-    const inst = instrumentFor(track.instrument);
     const tune = this.graph.tuning + (track.tune ?? 0) / 100;
+    if (track.instrument === 'sampler') {
+      const s = track.sampler;
+      if (!s) return null;
+      // Slices are keys, not pitches: tuning only bends the pitched mode.
+      const voice = playSampler(ctx, bus.input, s, { time: at, pitch: s.mode === 'pitch' ? pitch + tune : pitch, dur, vel }, this.graph.bpm);
+      if (!voice) return null;
+      if (s.mode !== 'pitch') {
+        const prev = this.chops.get(track.id);
+        if (prev && prev.t < at) prev.voice.kill(at);
+        this.chops.set(track.id, { voice, t: at });
+      }
+      this.track(voice, dur === null ? Infinity : at + dur + 4);
+      return voice;
+    }
+    const inst = instrumentFor(track.instrument);
     const from = glideFrom === undefined ? undefined : glideFrom + tune;
     const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
     this.track(voice, dur === null ? Infinity : at + dur + 4);
@@ -419,6 +444,7 @@ export class NoteScheduler {
     for (const p of this.active) p.voice.kill(t);
     this.active = [];
     this.openHats.clear();
+    this.chops.clear();
     this.graph.resetDucks(t);
   }
 }

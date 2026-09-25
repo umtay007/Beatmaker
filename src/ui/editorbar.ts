@@ -6,6 +6,7 @@ import { DUCK_RELEASE, HPF_OFF, LPF_OFF, PPQ, STEP, type Track } from '../core/t
 import type { Actions } from './actions';
 import { h, icon, showMenu, showPopover } from './dom';
 import type { Editor } from './editor';
+import { replaceSamplerSound, showSamplerEditor } from './samplerui';
 import { instrumentOptions } from './tracks';
 
 const GRIDS: [number, string][] = [
@@ -51,6 +52,7 @@ export class EditorBar {
   private pan: HTMLInputElement;
   private rev: HTMLInputElement;
   private fx: HTMLButtonElement;
+  private sample: HTMLButtonElement;
   private follow: HTMLButtonElement;
   private keys: HTMLButtonElement;
   private instKind = '';
@@ -69,6 +71,13 @@ export class EditorBar {
       if (this.inst.value === LOAD_PACK) {
         this.inst.value = t.instrument;
         actions.loadDrumPack();
+        return;
+      }
+      if (this.inst.value === 'sampler' && !t.sampler) {
+        // A sampler needs a sound first.
+        this.inst.value = t.instrument;
+        const id = t.id;
+        void replaceSamplerSound(store, engine, id).then((ok) => ok && showSamplerEditor(store, engine, id));
         return;
       }
       store.update(() => (t.instrument = this.inst.value));
@@ -103,6 +112,15 @@ export class EditorBar {
     };
     this.pan = mini('Pan (double-click to center)', -1, 1, 'pan');
     this.rev = mini('Reverb send', 0, 1, 'reverb');
+    this.sample = h(
+      'button',
+      { class: 'btn btn-ghost', title: 'The sampler’s sound, chops, loop and trim', onclick: () => {
+        const t = store.track;
+        if (t) showSamplerEditor(store, engine, t.id);
+      } },
+      icon('wave', 15),
+      'Sample',
+    ) as HTMLButtonElement;
     this.fx = h(
       'button',
       { class: 'btn btn-ghost', title: 'Echo, sidechain ducking, EQ and filter for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
@@ -132,6 +150,7 @@ export class EditorBar {
       { class: 'editor-bar' },
       this.title,
       this.inst,
+      this.sample,
       h('div', { class: 'divider' }),
       h('span', { class: 'lbl hide-md' }, 'Grid'),
       this.grid,
@@ -189,6 +208,7 @@ export class EditorBar {
       if (t.kind === 'drums') this.inst.append(h('option', { value: LOAD_PACK }, '＋ Load a drum pack…'));
     }
     this.inst.value = t.instrument;
+    this.sample.style.display = t.instrument === 'sampler' ? '' : 'none';
     this.grid.value = String(ui.grid);
     if (![...this.grid.options].some((o) => o.value === String(ui.grid))) this.grid.value = String(STEP);
     if (![...this.len.options].some((o) => o.value === String(ui.noteLength))) {

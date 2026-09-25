@@ -2,6 +2,7 @@ import { Timeline } from '../core/timing';
 import type { Song } from '../core/types';
 import { loadKit } from './drums';
 import { buildEvents, Graph, graphLatency, NoteScheduler, type KitBuffers } from './graph';
+import { ensureSamplerFiles } from './sampler';
 import { ensureSongSamples } from './samples';
 
 export interface RenderOptions {
@@ -11,6 +12,8 @@ export interface RenderOptions {
   sampleRate?: number;
   backing?: AudioBuffer | null;
   backingVolume?: number;
+  /** false: skip the master compressor and limiter (stems). */
+  dynamics?: boolean;
 }
 
 /** Render a song (or part of it) faster than real time with an OfflineAudioContext. */
@@ -19,13 +22,14 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const tl = new Timeline(song);
   const length = Math.max(0.1, opts.to - opts.from + opts.tail);
   // Render the master chain's look-ahead delay too, then trim it so hits land exactly on the grid.
-  const lat = Math.round((await graphLatency(sr)) * sr);
+  const dynamics = opts.dynamics ?? true;
+  const lat = dynamics ? Math.round((await graphLatency(sr)) * sr) : 0;
   const frames = Math.ceil(length * sr);
   const ctx = new OfflineAudioContext(2, frames + lat, sr);
-  const graph = new Graph(ctx);
+  const graph = new Graph(ctx, { dynamics });
   graph.applyMix(song, false);
   graph.out.connect(ctx.destination);
-  await ensureSongSamples(song.tracks);
+  await Promise.all([ensureSongSamples(song.tracks), ensureSamplerFiles(song.tracks)]);
   const kits: KitBuffers = new Map();
   for (const id of new Set(song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument))) {
     kits.set(id, await loadKit(id, sr));

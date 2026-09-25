@@ -5,6 +5,7 @@ import type { Store } from '../core/store';
 import { newNoteId, newTrackId, type Track } from '../core/types';
 import { PALETTES } from '../visual/settings';
 import { h, icon, showMenu, type MenuItem } from './dom';
+import { newSamplerTrack } from './samplerui';
 
 export function instrumentLabel(t: Track): string {
   return t.kind === 'drums' ? KIT_BY_ID.get(t.instrument)?.label ?? 'Drum kit' : INSTRUMENT_BY_ID.get(t.instrument)?.label ?? t.instrument;
@@ -282,7 +283,8 @@ export class TracksPanel {
     for (const i of INSTRUMENTS) {
       if (group && i.group !== group) items.push('-');
       group = i.group;
-      items.push({ label: i.label, hint: i.group, action: () => this.addTrack('synth', i.id) });
+      if (i.id === 'sampler') items.push({ label: 'Sampler…', hint: 'your own sound, loop or chop', icon: 'upload', action: () => void newSamplerTrack(this.store, this.engine, this.nextColor()) });
+      else items.push({ label: i.label, hint: i.group, action: () => this.addTrack('synth', i.id) });
     }
     showMenu(anchor, items);
   }

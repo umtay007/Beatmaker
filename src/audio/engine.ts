@@ -4,6 +4,7 @@ import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types'
 import { KIT_BY_ID, loadKit } from './drums';
 import { buildEvents, Graph, graphLatency, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
 import type { Voice } from './instruments';
+import { ensureSamplerFiles } from './sampler';
 import { ensureSongSamples } from './samples';
 import { peakEnvelope } from './tempo';
 
@@ -109,7 +110,7 @@ export class AudioEngine {
   ensureKits(sampleWait = 4): Promise<void> {
     if (!this.ctx) return Promise.resolve();
     const wait = (p: Promise<void>) => (sampleWait === Infinity ? p : Promise.race([p, new Promise<void>((r) => setTimeout(r, sampleWait * 1000))]));
-    return Promise.all([this.loadStandIns(), wait(this.loadKits()), wait(ensureSongSamples(this.song.tracks))]).then(() => undefined);
+    return Promise.all([this.loadStandIns(), wait(this.loadKits()), wait(ensureSongSamples(this.song.tracks)), ensureSamplerFiles(this.song.tracks)]).then(() => undefined);
   }
 
   /** Give recorded kits that are still downloading their synthesized fallback voices meanwhile. */

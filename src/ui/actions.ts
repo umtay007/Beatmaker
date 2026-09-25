@@ -2,6 +2,7 @@ import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type 
 import { KIT_BY_ID } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
+import { loadSamplerFile } from '../audio/sampler';
 import { detectAudioKey } from '../audio/key';
 import { detectTempo } from '../audio/tempo';
 import { generateSong, GENRE_BY_ID } from '../beats/generator';
@@ -16,6 +17,7 @@ import type { VisualPlayer } from '../visual/player';
 import { mergeVisual, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
 import { downloadBlob, h, modal, pickFile, safeName, toast } from './dom';
 import { showPackLoader } from './packs';
+import { zipFiles } from './zip';
 
 const SCALES_7 = new Set(['minor', 'major', 'dorian', 'phrygian', 'harmonic', 'mixolydian', 'lydian']);
 
@@ -169,8 +171,11 @@ export class Actions {
       this.engine.stop();
       void this.engine.ensureKits();
       const missing = this.store.song.tracks.filter((t) => t.kind === 'drums' && !KIT_BY_ID.has(t.instrument));
+      const samplers = this.store.song.tracks.filter((t) => t.instrument === 'sampler' && t.sampler);
+      const lost = (await Promise.all(samplers.map(async (t) => ((await loadSamplerFile(t.sampler!.file)) ? null : t)))).filter((t) => t !== null);
+      missing.push(...lost);
       if (missing.length) {
-        toast(`Opened ${file.name}. ${missing.map((t) => `“${t.name}”`).join(', ')} used a drum pack that isn't saved in this browser: playing Trap 808 until you load it (File → Load drum pack…) and pick it.`, 'info', 7000);
+        toast(`Opened ${file.name}. ${missing.map((t) => `“${t.name}”`).join(', ')} used sounds that aren't saved in this browser (a drum pack or a sampler sound). Load them again: File → Load drum pack…, or the Sample button.`, 'info', 7000);
       } else toast(`Opened ${file.name}`, 'ok');
     } catch (e) {
       toast(`Couldn't open project: ${(e as Error).message}`, 'error', 4000);
@@ -260,6 +265,63 @@ export class Actions {
       if (await downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`)) toast('WAV exported', 'ok');
     } catch (e) {
       toast(`Render failed: ${(e as Error).message}`, 'error', 4000);
+    } finally {
+      m.close();
+    }
+  }
+
+  /**
+   * Render every (unmuted) track on its own and download them with the full mix as a ZIP of WAVs.
+   * Stems keep each track's own effects and the master EQ, width and level, but skip the master
+   * compressor and limiter, so they add up to the mix before it.
+   */
+  async exportStems(): Promise<void> {
+    const song = cloneSong(this.store.song);
+    const tl = this.engine.timeline;
+    let from = 0;
+    let to = this.engine.songEndSec();
+    if (this.store.visual.exportRange === 'loop' && song.loop.end > song.loop.start) {
+      from = tl.rawTickToSec(song.loop.start);
+      to = tl.rawTickToSec(song.loop.end);
+    }
+    const tracks = song.tracks.filter((t) => t.notes.length && !t.mute);
+    if (!tracks.length) {
+      toast('No unmuted tracks with notes to export', 'error');
+      return;
+    }
+    let cancelled = false;
+    const bar = h('div', { style: { width: '0%' } });
+    const status = h('p', null, 'Rendering the full mix…');
+    const cancel = h('button', { class: 'btn btn-block', onclick: () => (cancelled = true) }, 'Cancel');
+    const m = modal('Export stems', h('div', null, status, h('div', { class: 'progress' }, bar), cancel), { closable: false });
+    const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Track';
+    try {
+      const files: { name: string; data: Blob }[] = [];
+      files.push({ name: '00 Full mix.wav', data: encodeWav(await renderSong(song, { from, to, tail: 2 })) });
+      for (const [i, t] of tracks.entries()) {
+        if (cancelled) break;
+        status.textContent = `Rendering ${i + 1} of ${tracks.length}: ${t.name}…`;
+        bar.style.width = `${Math.round(((i + 1) / (tracks.length + 1)) * 100)}%`;
+        const copy = cloneSong(song);
+        for (const x of copy.tracks) {
+          x.solo = x.id === t.id;
+          // Only this track plays; kicks stay (silent) when it is sidechained to them.
+          if (x.id !== t.id) x.notes = (t.duck ?? 0) > 0 && x.kind === 'drums' ? x.notes.filter((n) => n.pitch === 35 || n.pitch === 36) : [];
+        }
+        const buf = await renderSong(copy, { from, to, tail: 2, dynamics: false });
+        files.push({ name: `${String(i + 1).padStart(2, '0')} ${fileName(t.name)}.wav`, data: encodeWav(buf) });
+      }
+      if (cancelled) {
+        toast('Stem export cancelled');
+        return;
+      }
+      status.textContent = 'Zipping…';
+      bar.style.width = '100%';
+      const zip = await zipFiles(files);
+      m.close();
+      if (await downloadBlob(zip, `${safeName(song.name)}-stems.zip`)) toast(`Exported ${tracks.length} stems + the full mix`, 'ok', 4000);
+    } catch (e) {
+      toast(`Stem export failed: ${(e as Error).message}`, 'error', 5000);
     } finally {
       m.close();
     }

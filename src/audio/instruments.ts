@@ -11,7 +11,7 @@ import { drive, GAUSS_LEN, gaussDecay, pulseHarmonics, VoiceKit, wave, type Voic
 export type { Voice, VoiceArgs } from './voice';
 
 /** Instrument families, in the order the instrument menu lists them. */
-export const GROUPS = ['Keys', 'Guitar', 'Strings', 'Brass', 'Woodwind', 'Bass', 'Pluck', 'Mallet', 'Bell', 'Pad', 'Lead', 'Vocal'] as const;
+export const GROUPS = ['Sampler', 'Keys', 'Guitar', 'Strings', 'Brass', 'Woodwind', 'Bass', 'Pluck', 'Mallet', 'Bell', 'Pad', 'Lead', 'Vocal'] as const;
 export type InstrumentGroup = (typeof GROUPS)[number];
 
 export interface InstrumentDef {
@@ -589,6 +589,9 @@ for (const def of SAMPLED) {
     },
   });
 }
+
+// The sampler plays the track's own sound (see sampler.ts; the scheduler handles it directly).
+INSTRUMENTS.push({ id: 'sampler', label: 'Sampler (your sound)', group: 'Sampler', octave: 3, build: () => ({ release: () => {}, kill: () => {} }) });
 
 export const INSTRUMENT_BY_ID = new Map(INSTRUMENTS.map((i) => [i.id, i]));
 

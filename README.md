@@ -39,6 +39,10 @@ result as an MP4 or WebM video.
   bongo, woodblock, triangle, shaker, cowbell, toms, crash and ride.
 - **Recorded drum machines**: a real **TR-808** (plus a long-kick variant for trap), **TR-909** and
   **TR-707**, streamed on demand. Voices a machine never had fall back to synthesized ones.
+- A **sampler** for your own sounds (Instrument → Sampler…): play a one-shot or vocal chop across
+  the keyboard, **chop** a phrase or loop at its hits (one chop per key from C3, each cutting off
+  the last, and a button that writes the chops back into the track), or play a **loop** stretched to
+  the song tempo. With trim, level, attack, release and reverse. Sounds stay in your browser.
 - **Load your own drum packs**: pick (or drop) the folder of any sample pack you have. Files are
   matched to drum voices by name ("Kick 01.wav", "Hats/Open Hat 3.wav", "BD0025.WAV"…), you can
   change any pick with a preview, and the pack is saved in your browser as a kit. Nothing is
@@ -92,7 +96,8 @@ result as an MP4 or WebM video.
   Mystic Violet, Falling Keys and Club Spectrum. There are also 8 track-color palettes.
 - **Export video** as MP4 or WebM in 16:9, 9:16, 1:1 or 4:5, at 720p up to 4K and 30 or 60 fps.
   You can export the whole song or just the loop, with lead-in and tail.
-- **Export WAV** (rendered offline, sample-aligned to the grid), **export MIDI**, and save or open
+- **Export WAV** (rendered offline, sample-aligned to the grid), **export stems** (a WAV per track
+  plus the full mix, in a ZIP; stems skip the master compressor so they add up to the mix), **export MIDI**, and save or open
   projects as `.json`.
 
 ## Getting started

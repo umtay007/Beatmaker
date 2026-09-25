@@ -136,6 +136,7 @@ export class TopBar {
       '-',
       { label: 'Export video', icon: 'film', action: () => a.exportVideo() },
       { label: 'Export WAV', icon: 'wave', action: () => a.exportWav() },
+      { label: 'Export stems', icon: 'wave', hint: 'a WAV per track', action: () => a.exportStems() },
       { label: 'Export MIDI', icon: 'music', action: () => a.exportMidi() },
     ]);
   }
