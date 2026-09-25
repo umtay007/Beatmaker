@@ -26,6 +26,8 @@ export interface TidyResult {
   period: number;
   /** Blocks rewritten from a consensus. */
   tidied: number;
+  /** The start ticks of each group of blocks rewritten alike (for linking them as loops). */
+  groups: number[][];
 }
 
 type Key = string;
@@ -73,7 +75,7 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
   const minRepeats = o.minRepeats ?? 3;
   const keep = o.keep ?? 0.5;
   const alike = o.alike ?? 0.35;
-  if (notes.length < 8) return { notes, period: 0, tidied: 0 };
+  if (notes.length < 8) return { notes, period: 0, tidied: 0, groups: [] };
   // Score each loop length by how well every block matches its best partner anywhere in the song
   // (neighbours alone would count every section change against it).
   const scored: { period: number; phase: number; score: number; bl: Block[]; sim: number[][] }[] = [];
@@ -87,9 +89,9 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
       scored.push({ period, phase, score: bestPartner.reduce((x, y) => x + y, 0) / bestPartner.length, bl, sim });
     }
   }
-  if (!scored.length) return { notes, period: 0, tidied: 0 };
+  if (!scored.length) return { notes, period: 0, tidied: 0, groups: [] };
   const top = Math.max(...scored.map((x) => x.score));
-  if (top < alike) return { notes, period: 0, tidied: 0 };
+  if (top < alike) return { notes, period: 0, tidied: 0, groups: [] };
   // The longest loop that repeats about as well: a shorter one would flatten bar-to-bar variation.
   const best = scored.filter((x) => x.score >= top - 0.05).sort((a, b) => b.period - a.period || b.score - a.score)[0];
 
@@ -120,9 +122,11 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
   const replaced = new Set<Note>();
   const added: Note[] = [];
   let tidied = 0;
+  const linked: number[][] = [];
   for (const gi of groups) {
     if (gi.length < minRepeats) continue;
     const g = gi.map((i) => bl[i]);
+    linked.push(g.map((b) => b.start).filter((s) => s >= 0).sort((x, y) => x - y));
     // Votes per pitch and step; a step either way joins the nearest existing vote.
     const votes = new Map<Key, { steps: number[]; durs: number[]; vels: number[] }>();
     for (const b of g) {
@@ -151,8 +155,8 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
       tidied++;
     }
   }
-  if (!tidied) return { notes, period: best.period, tidied: 0 };
+  if (!tidied) return { notes, period: best.period, tidied: 0, groups: [] };
   const out = [...notes.filter((n) => !replaced.has(n)), ...added].filter((n) => n.start >= 0 && n.start < o.bars * BAR);
   out.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
-  return { notes: out, period: best.period, tidied };
+  return { notes: out, period: best.period, tidied, groups: linked };
 }

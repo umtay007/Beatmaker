@@ -169,6 +169,19 @@ export interface Song {
   master?: MasterSettings;
   /** Named parts of the song (intro, verse, hook…), each running to the next marker. */
   sections?: Section[];
+  /** Linked loops: stretches whose copies stay the same (edit one, all follow). */
+  loops?: LinkedLoop[];
+}
+
+export interface LinkedLoop {
+  id: string;
+  name: string;
+  /** Length in ticks (whole bars). */
+  length: number;
+  /** Where each copy starts (ticks, on bar lines), in order. */
+  starts: number[];
+  /** The tracks it links; all of them when absent. */
+  tracks?: string[];
 }
 
 export interface Section {

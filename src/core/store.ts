@@ -1,3 +1,4 @@
+import { loopSignatures, syncLoops, type LoopSigs } from './loops';
 import { AUTO_PARAMS } from './automation';
 import { SCALES } from './theory';
 import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type SoundfontSettings, type Song, type Track, type TrackFx } from './types';
@@ -68,6 +69,8 @@ export class Store {
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private gesture: string | null = null;
+  /** How each linked loop's copies looked after the last change (to tell which one was edited). */
+  private loopSigs: LoopSigs = new Map();
   private saveTimer = 0;
 
   on(ev: StoreEvent, fn: Listener): () => void {
@@ -90,6 +93,7 @@ export class Store {
     if (undoable && this.song) this.pushUndo(JSON.stringify(this.song));
     this.song = song;
     bumpNoteIds(song);
+    this.loopSigs = loopSignatures(song);
     if (!song.tracks.some((t) => t.id === this.ui.selectedTrackId)) {
       this.ui.selectedTrackId = song.tracks[0]?.id ?? '';
     }
@@ -153,6 +157,7 @@ export class Store {
   private restore(json: string): void {
     this.song = JSON.parse(json) as Song;
     bumpNoteIds(this.song);
+    this.loopSigs = loopSignatures(this.song);
     if (!this.song.tracks.some((t) => t.id === this.ui.selectedTrackId)) {
       this.ui.selectedTrackId = this.song.tracks[0]?.id ?? '';
       this.emit('ui');
@@ -162,6 +167,8 @@ export class Store {
   }
 
   private changed(): void {
+    // Linked loops: the copy just edited is written over its other copies (same undo step).
+    if (this.song.loops?.length) this.loopSigs = syncLoops(this.song, this.loopSigs);
     this.songVersion++;
     this.emit('song');
     this.scheduleSave();
@@ -220,6 +227,7 @@ export class Store {
         if (song && Array.isArray(song.tracks)) {
           this.song = normalizeSong(song);
           bumpNoteIds(this.song);
+          this.loopSigs = loopSignatures(this.song);
           return true;
         }
       } catch {
@@ -257,6 +265,24 @@ function normalizeSections(v: unknown, bars: number): Song['sections'] {
   }
   const list = [...byTick].sort((a, b) => a[0] - b[0]).map(([tick, name]) => ({ tick, name }));
   return list.length ? list : undefined;
+}
+
+/** Keep linked loops with whole-bar lengths and non-overlapping copies inside the song. */
+function normalizeLoops(v: unknown, bars: number, trackIds: Set<string>): Song['loops'] {
+  if (!Array.isArray(v)) return undefined;
+  const out: NonNullable<Song['loops']> = [];
+  for (const l of v) {
+    if (!l || typeof l.id !== 'string' || !Array.isArray(l.starts)) continue;
+    const length = Math.max(1, Math.round(num(l.length, BAR) / BAR)) * BAR;
+    const starts: number[] = [];
+    for (const x of [...l.starts].map((t: unknown) => Math.round(num(t, -1) / BAR) * BAR).sort((a: number, b: number) => a - b)) {
+      if (x >= 0 && x + length <= bars * BAR && (!starts.length || x >= starts[starts.length - 1] + length)) starts.push(x);
+    }
+    if (!starts.length) continue;
+    const tracks = Array.isArray(l.tracks) ? l.tracks.filter((id: unknown): id is string => typeof id === 'string' && trackIds.has(id)) : [];
+    out.push({ id: l.id, name: typeof l.name === 'string' ? l.name.slice(0, 24) : 'Loop', length, starts, ...(tracks.length ? { tracks } : {}) });
+  }
+  return out.length ? out : undefined;
 }
 
 /** Keep known lanes with finite, in-range points, sorted and one per tick. */
@@ -398,6 +424,7 @@ export function normalizeSong(song: Partial<Song>): Song {
     tuning: Math.round(num(song.tuning, 0, -100, 100)),
     echoBeats: num(song.echoBeats, 0.75, 0.125, 4),
     sections: normalizeSections(song.sections, bars),
+    loops: normalizeLoops(song.loops, bars, new Set((song.tracks ?? []).map((t) => t?.id).filter((id): id is string => typeof id === 'string'))),
     master: {
       eq: DEFAULT_MASTER.eq.map((d, i) => Math.round(num(song.master?.eq?.[i], d, -15, 15) * 2) / 2),
       width: num(song.master?.width, 1, 0, 2.5),

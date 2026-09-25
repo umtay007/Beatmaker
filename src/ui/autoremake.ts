@@ -21,6 +21,7 @@ import type { AudioEngine } from '../audio/engine';
 import { putFile } from '../core/library';
 import type { Store } from '../core/store';
 import { tidyRepeats } from '../core/tidy';
+import { makeLoop } from '../core/loops';
 import { Timeline } from '../core/timing';
 import { BAR, cloneSong, DEFAULT_SAMPLER, MAX_BARS, newNoteId, newTrackId, STEP, type Note, type Song, type Track } from '../core/types';
 import type { Actions } from './actions';
@@ -164,12 +165,16 @@ export async function autoRemake(
     { name: 'Chords', kind: 'synth', instrument: 'gstrings', notes: chords, role: 'chords' },
     { name: 'Melody', kind: 'synth', instrument: 'spiano', notes: melody, role: 'melody' },
   ];
+  const loopsOf = new Map<string, { period: number; groups: number[][] }>();
   for (const p of parts) {
     const inRange = p.notes.filter((n) => n.start < endTick);
     if (opts.tidy && inRange.length >= 8) {
       const r = tidyRepeats(inRange, { bars: song.bars });
       p.notes = r.notes;
-      if (r.tidied) report.push(`${p.name}: repeats tidied (a ${r.period}-bar loop, ${r.tidied} passes)`);
+      if (r.tidied) {
+        report.push(`${p.name}: repeats tidied (a ${r.period}-bar loop, ${r.tidied} passes), and linked so editing one pass edits them all`);
+        loopsOf.set(p.name, { period: r.period, groups: r.groups });
+      }
     } else p.notes = inRange;
   }
   song.tracks = parts
@@ -189,6 +194,17 @@ export async function autoRemake(
       notes: p.notes.map((n) => ({ ...n, id: newNoteId() })),
     }));
   const roleOf = new Map(song.tracks.map((t) => [t.id, parts.find((p) => p.name === t.name)!.role]));
+  // The tidied repeats become linked loops, one per group of alike passes.
+  for (const t of song.tracks) {
+    const l = loopsOf.get(t.name);
+    if (!l) continue;
+    l.groups.forEach((starts, gi) => {
+      const ok = starts.filter((s, i) => s + l.period * BAR <= song.bars * BAR && (i === 0 || s >= starts[i - 1] + l.period * BAR));
+      if (ok.length < 2) return;
+      const loop = makeLoop(song, ok[0], ok[0] + l.period * BAR, [t.id], `${t.name} ${String.fromCharCode(65 + gi)}`);
+      loop.starts = ok;
+    });
+  }
   song.sections = detectSections({ song, mix: buf, offset: off, vocals: stems?.vocals, drums: stems?.drums });
   report.push(`Sections: ${song.sections.map((s) => s.name).join(', ')}`);
   if (opts.keepVocals && stems?.vocals) {

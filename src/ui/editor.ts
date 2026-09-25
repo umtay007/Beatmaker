@@ -4,9 +4,12 @@ import { AUTO_BY_ID, AUTO_PARAMS, fromUnit, toUnit, type AutoParamDef } from '..
 import { DRUM_VOICES, inScale, keyPrefersFlats, noteName } from '../core/theory';
 import { BAR, newNoteId, PPQ, songLengthTicks, STEP, type AutoPoint, type Note, type Track } from '../core/types';
 import { deleteBars, duplicateBars, insertBars, removeSection, SECTION_NAMES, sectionAt, setSection } from '../core/arrange';
-import { askText, showMenu, type MenuItem } from './dom';
+import { fillLoop, loopAt, makeLoop, placeLoop, removeLoop, unlinkCopy } from '../core/loops';
+import { askText, showMenu, toast, type MenuItem } from './dom';
 
 const RULER = 24;
+/** Colours for linked loops on the ruler. */
+const LOOP_COLORS = ['#3dffb0', '#ffc94f', '#8ab4ff', '#ff8a5c'];
 const GUTTER = 84;
 
 interface Drag {
@@ -649,6 +652,35 @@ export class Editor {
         { label: `Delete the loop’s bars (${bars(a, b)})`, icon: 'trash', danger: true, action: () => store.update((s) => deleteBars(s, a, b)) },
       );
     }
+    // Linked loops: copies that stay the same (edit one, all follow).
+    const track = this.track;
+    const here = loopAt(song, at, track?.id);
+    items.push('-');
+    if (here) {
+      const { loop: l, start } = here;
+      items.push(
+        { label: `Fill the song with “${l.name}”`, icon: 'loop', hint: 'linked copies', action: () => store.update((s) => void fillLoop(s, l.id)) },
+        { label: `Rename “${l.name}”…`, icon: 'label', action: async () => {
+          const name = await askText('Rename loop', l.name);
+          if (name) store.update((s) => { const x = s.loops?.find((y) => y.id === l.id); if (x) x.name = name.slice(0, 24); });
+        } },
+        { label: `Unlink this copy of “${l.name}”`, hint: 'keeps its notes', action: () => store.update((s) => unlinkCopy(s, l.id, start)) },
+        { label: `Stop linking “${l.name}”`, hint: 'keeps all notes', action: () => store.update((s) => removeLoop(s, l.id)) },
+      );
+    } else {
+      for (const l of song.loops ?? []) {
+        if (track && l.tracks?.length && !l.tracks.includes(track.id)) continue;
+        items.push({ label: `Place “${l.name}” at bar ${bar + 1}`, icon: 'loop', hint: 'a linked copy', action: () => store.update((s) => {
+          if (!placeLoop(s, l.id, at)) toast(`“${l.name}” doesn't fit there (it would overlap another copy or run past the end)`, 'error', 4000);
+        }) });
+      }
+      const [a, b] = loop ? [Math.floor(loop.start / BAR) * BAR, Math.ceil(loop.end / BAR) * BAR] : sec ? [sec.start, sec.end] : [at, at + 4 * BAR];
+      const range = bars(a, Math.min(b, song.bars * BAR));
+      items.push(
+        { label: `Make ${range} a linked loop`, icon: 'loop', hint: 'all tracks', action: () => store.update((s) => void makeLoop(s, a, Math.min(b, s.bars * BAR))) },
+        ...(track ? [{ label: `Make ${range} a linked loop for “${track.name}”`, icon: 'loop', action: () => store.update((s) => void makeLoop(s, a, Math.min(b, s.bars * BAR), [track.id])) }] : []),
+      );
+    }
     showMenu(anchor, items);
     anchor.remove();
   }
@@ -1114,6 +1146,22 @@ export class Editor {
       ctx.textBaseline = 'middle';
       ctx.fillText(sec.name, x + 6, RULER / 2 - 1);
       ctx.restore();
+    });
+    // Linked loops over this track: a strip along the ruler's foot per copy, named at its start.
+    (song.loops ?? []).forEach((loop, li) => {
+      if (loop.tracks?.length && !loop.tracks.includes(t.id)) return;
+      const color = LOOP_COLORS[li % LOOP_COLORS.length];
+      for (const start of loop.starts) {
+        const x = this.tickToX(start);
+        const x2 = this.tickToX(start + loop.length);
+        if (x2 < GUTTER || x > W) continue;
+        ctx.fillStyle = color;
+        ctx.fillRect(x + 1, RULER - 5, Math.max(2, x2 - x - 2), 3);
+        ctx.font = '700 9px Inter, system-ui, sans-serif';
+        ctx.textBaseline = 'alphabetic';
+        // After the bar number the copy starts on.
+        ctx.fillText(loop.name, x + 18, RULER - 7);
+      }
     });
     ctx.restore();
     ctx.fillStyle = '#232a3d';

@@ -42,6 +42,15 @@ function shiftFrom(song: Song, at: number, by: number): void {
   }
   for (const s of song.sections ?? []) if (s.tick >= at) s.tick += by;
   for (const c of song.tempoChanges) if (c.tick >= at) c.tick += by;
+  for (const l of song.loops ?? []) l.starts = l.starts.map((x) => (x >= at ? x + by : x));
+}
+
+/** Linked-loop copies that an edit at [a, b) cuts into stop being linked (their notes stay). */
+function unlinkCopiesOver(song: Song, a: number, b: number): void {
+  if (!song.loops) return;
+  for (const l of song.loops) l.starts = l.starts.filter((x) => x + l.length <= a || x >= b);
+  song.loops = song.loops.filter((l) => l.starts.length);
+  if (!song.loops.length) delete song.loops;
 }
 
 /** Insert `bars` empty bars at a bar line. */
@@ -50,6 +59,8 @@ export function insertBars(song: Song, at: number, bars: number): number {
   if (!n) return 0;
   const tick = Math.round(at / BAR) * BAR;
   const len = n * BAR;
+  // A loop copy split by the new bars would no longer match its others.
+  for (const l of song.loops ?? []) l.starts = l.starts.filter((x) => !(x < tick && x + l.length > tick));
   shiftFrom(song, tick, len);
   const l = song.loop;
   if (l.start >= tick) l.start += len;
@@ -87,6 +98,7 @@ export function deleteBars(song: Song, from: number, to: number): number {
   const carried = cutSections.length ? cutSections[cutSections.length - 1] : null;
   if (song.sections) song.sections = song.sections.filter((s) => s.tick < a || s.tick >= end);
   song.tempoChanges = song.tempoChanges.filter((c) => c.tick < a || c.tick >= end);
+  unlinkCopiesOver(song, a, end);
   shiftFrom(song, end, -len);
   if (carriedTempo !== null) {
     if (a === 0) song.bpm = carriedTempo;
@@ -125,6 +137,11 @@ export function duplicateBars(song: Song, from: number, to: number): number {
       pts.push(...pts.filter((p) => p.tick >= a && p.tick < a + len).map((p) => ({ tick: p.tick + len, value: p.value })));
       pts.sort((x, y) => x.tick - y.tick);
     }
+  }
+  // Loop copies inside the duplicated bars get linked twins.
+  for (const l of song.loops ?? []) {
+    const twins = l.starts.filter((x) => x >= a && x + l.length <= a + len).map((x) => x + len);
+    l.starts = [...l.starts, ...twins].sort((x, y) => x - y);
   }
   const secs = (song.sections ?? []).filter((s) => s.tick >= a && s.tick < a + len).map((s) => ({ tick: s.tick + len, name: s.name }));
   if (secs.length) {
