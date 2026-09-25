@@ -24,6 +24,8 @@ interface ParsedMidi {
   division: number;
   tracks: RawTrack[];
   tempos: { tick: number; bpm: number }[];
+  /** Marker (FF 06) texts: song sections in files from DAWs (and from this app). */
+  markers: { tick: number; text: string }[];
   keySig: { key: number; scale: 'major' | 'minor' } | null;
 }
 
@@ -78,6 +80,7 @@ export function parseMidi(buf: ArrayBuffer): ParsedMidi {
   }
   const tracks: RawTrack[] = [];
   const tempos: { tick: number; bpm: number }[] = [];
+  const markers: { tick: number; text: string }[] = [];
   let keySig: ParsedMidi['keySig'] = null;
 
   for (let ti = 0; ti < ntracks && r.pos < buf.byteLength - 8; ti++) {
@@ -108,6 +111,8 @@ export function parseMidi(buf: ArrayBuffer): ParsedMidi {
           const minor = r.u8() === 1;
           const major = SF_TO_MAJOR[Math.max(-7, Math.min(7, sf)) + 7];
           keySig = { key: minor ? (major + 9) % 12 : major, scale: minor ? 'minor' : 'major' };
+        } else if (type === 0x06 && l > 0) {
+          markers.push({ tick, text: decodeText(new Uint8Array(buf, start, l)).trim() });
         } else if ((type === 0x03 || type === 0x04) && !track.name) {
           track.name = decodeText(new Uint8Array(buf, start, l));
         } else if (type === 0x2f) {
@@ -153,7 +158,7 @@ export function parseMidi(buf: ArrayBuffer): ParsedMidi {
     r.pos = end;
     tracks.push(track);
   }
-  return { division, tracks, tempos, keySig };
+  return { division, tracks, tempos, markers, keySig };
 }
 
 function decodeText(bytes: Uint8Array): string {
@@ -319,6 +324,16 @@ export function midiToSong(buf: ArrayBuffer, fileName: string, opts: ImportOptio
     loop: { enabled: false, start: 0, end: Math.min(bars, 4) * BAR },
     audioOffset: 0,
     synthsWithAudio: false,
+    // Markers become sections, on the nearest bar line.
+    sections: (() => {
+      const byBar = new Map<number, string>();
+      for (const m of midi.markers) {
+        const tick = Math.round(toTick(m.tick) / BAR) * BAR;
+        if (m.text && tick < bars * BAR) byBar.set(tick, m.text.slice(0, 24));
+      }
+      const list = [...byBar].sort((a, b) => a[0] - b[0]).map(([tick, name]) => ({ tick, name }));
+      return list.length ? list : undefined;
+    })(),
   };
 }
 
@@ -374,12 +389,22 @@ export function songToMidi(song: Song): Uint8Array {
     if (sf < -7 || sf > 7) sf = 0;
     tempo.push(0, 0xff, 0x59, 2, sf & 0xff, minor ? 1 : 0);
   }
-  const changes = [{ tick: 0, bpm: song.bpm }, ...song.tempoChanges];
+  // Tempo changes and section markers (FF 06, shown by DAWs), in time order.
+  const enc = new TextEncoder();
+  const metas: { tick: number; bytes: number[] }[] = [
+    ...[{ tick: 0, bpm: song.bpm }, ...song.tempoChanges].map((c) => {
+      const us = Math.round(60000000 / c.bpm);
+      return { tick: c.tick, bytes: [0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255] };
+    }),
+    ...(song.sections ?? []).map((sec) => {
+      const text = [...enc.encode(sec.name)];
+      return { tick: sec.tick, bytes: [0xff, 0x06, ...vlq(text.length), ...text] };
+    }),
+  ].sort((x, y) => x.tick - y.tick);
   let last = 0;
-  for (const c of changes) {
-    const us = Math.round(60000000 / c.bpm);
-    tempo.push(...vlq(c.tick - last), 0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255);
-    last = c.tick;
+  for (const m of metas) {
+    tempo.push(...vlq(m.tick - last), ...m.bytes);
+    last = m.tick;
   }
   tempo.push(0, 0xff, 0x2f, 0);
   out.push(...chunk('MTrk', tempo));

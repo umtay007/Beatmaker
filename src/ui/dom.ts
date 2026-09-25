@@ -164,6 +164,36 @@ export function pickFiles(accept: string, directory = false): Promise<File[]> {
   });
 }
 
+/** Ask for a short name (with one-click suggestions). Resolves null if cancelled. */
+export function askText(title: string, value: string, suggestions: string[] = []): Promise<string | null> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: string | null) => {
+      if (done) return;
+      done = true;
+      resolve(v && v.trim() ? v.trim().slice(0, 24) : null);
+      m.close();
+    };
+    const input = h('input', { class: 'text', type: 'text', value, maxlength: 24, 'aria-label': title }) as HTMLInputElement;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(input.value);
+    });
+    const chips = suggestions.map((sug) => h('button', { class: 'seg-btn', type: 'button', onclick: () => finish(sug) }, sug));
+    const body = h(
+      'div',
+      { class: 'ask-text' },
+      input,
+      chips.length ? h('div', { class: 'seg ask-chips' }, chips) : null,
+      h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-primary', onclick: () => finish(input.value) }, 'OK')),
+    );
+    const m = modal(title, body, { onClose: () => finish(null) });
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    });
+  });
+}
+
 export function safeName(s: string): string {
   return (s || 'beat').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'beat';
 }

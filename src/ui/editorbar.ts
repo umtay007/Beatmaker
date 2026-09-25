@@ -2,9 +2,10 @@ import { KITS } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES, regeneratePart } from '../beats/generator';
 import type { Store } from '../core/store';
-import { DUCK_RELEASE, HPF_OFF, LPF_OFF, PPQ, STEP, type Track } from '../core/types';
+import { deleteBars, duplicateBars, insertBars } from '../core/arrange';
+import { BAR, DUCK_RELEASE, HPF_OFF, LPF_OFF, PPQ, STEP, type Track } from '../core/types';
 import type { Actions } from './actions';
-import { h, icon, showMenu, showPopover } from './dom';
+import { h, icon, showMenu, showPopover, type MenuItem } from './dom';
 import type { Editor } from './editor';
 import { replaceSamplerSound, showSamplerEditor } from './samplerui';
 import { instrumentOptions } from './tracks';
@@ -59,7 +60,7 @@ export class EditorBar {
 
   constructor(
     private store: Store,
-    engine: AudioEngine,
+    private engine: AudioEngine,
     private editor: Editor,
     private actions: Actions,
   ) {
@@ -322,11 +323,30 @@ export class EditorBar {
       { label: 'Transpose −1 octave', action: () => { e.selectAll(); e.transpose(-12); } },
       '-',
       { label: 'Double song length', icon: 'duplicate', action: () => this.actions.doubleLength() },
+      ...this.arrangeItems(),
       { label: 'Clear this track', icon: 'broom', danger: true, action: () => {
         const cur = t && this.trackById(t.id);
         if (cur) this.store.update(() => (cur.notes = []));
       } },
     ]);
+  }
+
+  /** Whole-song bar edits on the loop range or at the playhead (the ruler's right-click has more). */
+  private arrangeItems(): MenuItem[] {
+    const store = this.store;
+    const song = store.song;
+    const loop = song.loop.enabled && song.loop.end > song.loop.start ? song.loop : null;
+    const bar = Math.min(song.bars - 1, Math.floor(this.engine.positionTicks() / BAR)) * BAR;
+    const items: MenuItem[] = [{ label: 'Insert 4 bars at the playhead', icon: 'plus', hint: 'all tracks', action: () => store.update((s) => insertBars(s, bar, 4)) }];
+    if (loop) {
+      const a = Math.floor(loop.start / BAR) * BAR;
+      const b = Math.ceil(loop.end / BAR) * BAR;
+      items.push(
+        { label: 'Duplicate the loop’s bars', icon: 'duplicate', hint: 'all tracks', action: () => store.update((s) => duplicateBars(s, a, b)) },
+        { label: 'Delete the loop’s bars', icon: 'trash', hint: 'all tracks', danger: true, action: () => store.update((s) => deleteBars(s, a, b)) },
+      );
+    }
+    return items;
   }
 
   private partMenu(anchor: HTMLElement): void {

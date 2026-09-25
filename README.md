@@ -39,6 +39,11 @@ result as an MP4 or WebM video.
   bongo, woodblock, triangle, shaker, cowbell, toms, crash and ride.
 - **Recorded drum machines**: a real **TR-808** (plus a long-kick variant for trap), **TR-909** and
   **TR-707**, streamed on demand. Voices a machine never had fall back to synthesized ones.
+- **Sections and arranging**: right-click the ruler to mark sections (Intro, Verse, Hook…), then
+  loop, duplicate or delete a whole section, or insert, duplicate and delete bars. These edits move
+  every track's notes and automation, the markers, tempo changes and the loop together.
+  Double-click the ruler to loop the section under the pointer. Sections export as MIDI markers
+  (and markers from a DAW's MIDI come back as sections).
 - **Automation**: the lane under the editor switches (click its name) from note velocities to a
   curve for the track's volume, pan, high cut, low cut, reverb or echo. Click to add points, drag
   them, right-click to delete; values move in straight lines between points (filters on a log

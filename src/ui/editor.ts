@@ -3,7 +3,8 @@ import type { Store } from '../core/store';
 import { AUTO_BY_ID, AUTO_PARAMS, fromUnit, toUnit, type AutoParamDef } from '../core/automation';
 import { DRUM_VOICES, inScale, keyPrefersFlats, noteName } from '../core/theory';
 import { BAR, newNoteId, PPQ, songLengthTicks, STEP, type AutoPoint, type Note, type Track } from '../core/types';
-import { showMenu } from './dom';
+import { deleteBars, duplicateBars, insertBars, removeSection, SECTION_NAMES, sectionAt, setSection } from '../core/arrange';
+import { askText, showMenu, type MenuItem } from './dom';
 
 const RULER = 24;
 const GUTTER = 84;
@@ -221,6 +222,11 @@ export class Editor {
     });
     c.addEventListener('dblclick', (e) => {
       const p = this.local(e);
+      // Double-click the ruler: loop the section (or bar) there.
+      if (p.y < RULER && p.x > GUTTER) {
+        this.loopAround(Math.max(0, this.xToTick(p.x)));
+        return;
+      }
       const hit = this.noteAt(p.x, p.y);
       if (hit && !this.isDrums) this.deleteNotes([hit.note.id]);
     });
@@ -270,9 +276,13 @@ export class Editor {
       this.drag = { kind: 'pan', ...base, scroll0: this.scrollX, scrollY0: this.scrollY };
       return;
     }
-    // Ruler: seek, or shift-drag to set the loop.
+    // Ruler: seek, shift-drag to set the loop, right-click to arrange (sections, bars).
     if (y < RULER) {
       if (x < GUTTER) return;
+      if (e.button === 2) {
+        this.rulerMenu(Math.max(0, tick), e.clientX, e.clientY);
+        return;
+      }
       if (e.shiftKey) {
         const s = this.snapRound(tick);
         this.store.beginGesture();
@@ -579,6 +589,68 @@ export class Editor {
       }
     }
     return best;
+  }
+
+  /** Loop the section a tick falls in, or its bar when there are no sections there. */
+  private loopAround(tick: number): void {
+    const song = this.store.song;
+    const sec = sectionAt(song, tick);
+    const bar = Math.floor(tick / BAR) * BAR;
+    const [start, end] = sec ? [sec.start, sec.end] : [bar, bar + BAR];
+    this.store.update((s) => (s.loop = { enabled: true, start, end }));
+  }
+
+  /** Right-click on the ruler: sections and whole-bar edits for the whole song. */
+  private rulerMenu(tick: number, cx: number, cy: number): void {
+    const store = this.store;
+    const song = store.song;
+    const bar = Math.min(song.bars - 1, Math.floor(tick / BAR));
+    const at = bar * BAR;
+    const sec = sectionAt(song, tick);
+    const loop = song.loop.enabled && song.loop.end > song.loop.start ? song.loop : null;
+    const bars = (a: number, b: number) => (b - a <= BAR ? `bar ${a / BAR + 1}` : `bars ${a / BAR + 1}–${b / BAR}`);
+    const anchor = document.createElement('div');
+    anchor.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:1px;height:1px`;
+    document.body.append(anchor);
+    const marker = song.sections?.find((x) => x.tick === at);
+    const items: (MenuItem | '-')[] = [
+      {
+        label: marker ? `Rename “${marker.name}”…` : `Start a section at bar ${bar + 1}…`,
+        icon: 'label',
+        action: async () => {
+          const name = await askText(marker ? 'Rename section' : `Section at bar ${bar + 1}`, marker?.name ?? '', SECTION_NAMES);
+          if (name) store.update((s) => setSection(s, at, name));
+        },
+      },
+    ];
+    if (marker) items.push({ label: `Remove the “${marker.name}” marker`, action: () => store.update((s) => removeSection(s, at)) });
+    if (sec) {
+      const range = bars(sec.start, sec.end);
+      items.push(
+        '-',
+        { label: `Loop “${sec.section.name}” (${range})`, icon: 'loop', action: () => store.update((s) => (s.loop = { enabled: true, start: sec.start, end: sec.end })) },
+        { label: `Duplicate “${sec.section.name}”`, icon: 'duplicate', action: () => store.update((s) => duplicateBars(s, sec.start, sec.end)) },
+        { label: `Delete “${sec.section.name}” (${range})`, icon: 'trash', danger: true, action: () => store.update((s) => deleteBars(s, sec.start, sec.end)) },
+      );
+    }
+    items.push(
+      '-',
+      { label: `Insert a bar before bar ${bar + 1}`, icon: 'plus', action: () => store.update((s) => insertBars(s, at, 1)) },
+      { label: `Insert 4 bars before bar ${bar + 1}`, icon: 'plus', action: () => store.update((s) => insertBars(s, at, 4)) },
+      { label: `Duplicate bar ${bar + 1}`, icon: 'duplicate', action: () => store.update((s) => duplicateBars(s, at, at + BAR)) },
+      { label: `Delete bar ${bar + 1}`, icon: 'trash', danger: true, action: () => store.update((s) => deleteBars(s, at, at + BAR)) },
+    );
+    if (loop) {
+      const a = Math.floor(loop.start / BAR) * BAR;
+      const b = Math.ceil(loop.end / BAR) * BAR;
+      items.push(
+        '-',
+        { label: `Duplicate the loop (${bars(a, b)})`, icon: 'duplicate', action: () => store.update((s) => duplicateBars(s, a, b)) },
+        { label: `Delete the loop’s bars (${bars(a, b)})`, icon: 'trash', danger: true, action: () => store.update((s) => deleteBars(s, a, b)) },
+      );
+    }
+    showMenu(anchor, items);
+    anchor.remove();
   }
 
   /** Pick what the bottom lane shows. */
@@ -1023,6 +1095,26 @@ export class Editor {
         }
       }
     }
+    // Section tags (over the bar numbers they start on).
+    const secs = song.sections ?? [];
+    secs.forEach((sec, i) => {
+      const x = this.tickToX(sec.tick);
+      const next = secs[i + 1] ? this.tickToX(secs[i + 1].tick) : this.tickToX(total);
+      if (next < GUTTER || x > W) return;
+      ctx.font = '700 10px Inter, system-ui, sans-serif';
+      const tw = Math.min(ctx.measureText(sec.name).width + 10, Math.max(12, next - x - 3));
+      ctx.fillStyle = '#ff4fa3';
+      roundRect(ctx, x + 1, 3, tw, RULER - 8, 4);
+      ctx.fill();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 1, 0, tw - 3, RULER);
+      ctx.clip();
+      ctx.fillStyle = '#1a0612';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(sec.name, x + 6, RULER / 2 - 1);
+      ctx.restore();
+    });
     ctx.restore();
     ctx.fillStyle = '#232a3d';
     ctx.fillRect(0, RULER - 1, W, 1);

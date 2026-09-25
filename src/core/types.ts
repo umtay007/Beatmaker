@@ -137,6 +137,14 @@ export interface Song {
   echoBeats?: number;
   /** Master processing of the song's own tracks (not the reference audio). */
   master?: MasterSettings;
+  /** Named parts of the song (intro, verse, hook…), each running to the next marker. */
+  sections?: Section[];
+}
+
+export interface Section {
+  /** Start, on a bar line. */
+  tick: number;
+  name: string;
 }
 
 export interface MasterSettings {

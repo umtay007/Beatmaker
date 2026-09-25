@@ -1740,3 +1740,14 @@ button {
   gap: 0 18px;
   margin-top: 6px;
 }
+
+.ask-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 280px;
+}
+
+.ask-chips .seg-btn {
+  flex: 0 0 auto;
+}

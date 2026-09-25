@@ -246,6 +246,19 @@ function num(v: unknown, fallback: number, lo = -Infinity, hi = Infinity): numbe
   return typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
 }
 
+/** Section markers on bar lines inside the song, one per bar, with short names. */
+function normalizeSections(v: unknown, bars: number): Song['sections'] {
+  if (!Array.isArray(v)) return undefined;
+  const byTick = new Map<number, string>();
+  for (const s of v) {
+    if (!s || !Number.isFinite(s.tick) || typeof s.name !== 'string') continue;
+    const tick = Math.round(s.tick / BAR) * BAR;
+    if (tick >= 0 && tick < bars * BAR) byTick.set(tick, s.name.slice(0, 24) || 'Section');
+  }
+  const list = [...byTick].sort((a, b) => a[0] - b[0]).map(([tick, name]) => ({ tick, name }));
+  return list.length ? list : undefined;
+}
+
 /** Keep known lanes with finite, in-range points, sorted and one per tick. */
 function normalizeAutomation(v: unknown): Track['automation'] {
   if (!v || typeof v !== 'object') return undefined;
@@ -353,6 +366,7 @@ export function normalizeSong(song: Partial<Song>): Song {
     synthsWithAudio: song.synthsWithAudio ?? true,
     tuning: Math.round(num(song.tuning, 0, -100, 100)),
     echoBeats: num(song.echoBeats, 0.75, 0.125, 4),
+    sections: normalizeSections(song.sections, bars),
     master: {
       eq: DEFAULT_MASTER.eq.map((d, i) => Math.round(num(song.master?.eq?.[i], d, -15, 15) * 2) / 2),
       width: num(song.master?.width, 1, 0, 2.5),
