@@ -1,5 +1,6 @@
 import { Timeline } from '../core/timing';
 import type { Note, Song, Track } from '../core/types';
+import { EQ_BANDS } from './analyze';
 import { instrumentFor, type Voice } from './instruments';
 
 export interface TrackBus {
@@ -19,10 +20,11 @@ export interface SchedEvent {
   glideFrom?: number;
 }
 
-const impulseCache = new Map<number, AudioBuffer>();
+const impulseCache = new Map<string, AudioBuffer>();
 
 function makeImpulse(ctx: BaseAudioContext, seconds = 2.4, decay = 3.2): AudioBuffer {
-  const cached = impulseCache.get(ctx.sampleRate);
+  const key = `${ctx.sampleRate}:${seconds}`;
+  const cached = impulseCache.get(key);
   if (cached) return cached;
   const len = Math.floor(ctx.sampleRate * seconds);
   const buf = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -36,7 +38,7 @@ function makeImpulse(ctx: BaseAudioContext, seconds = 2.4, decay = 3.2): AudioBu
       d[i] = lp * Math.pow(1 - x, decay) * (i < ctx.sampleRate * 0.01 ? i / (ctx.sampleRate * 0.01) : 1);
     }
   }
-  impulseCache.set(ctx.sampleRate, buf);
+  impulseCache.set(key, buf);
   return buf;
 }
 
@@ -79,6 +81,12 @@ export class Graph {
   readonly reverbIn: GainNode;
   readonly echoIn: GainNode;
   readonly buses = new Map<string, TrackBus>();
+  /** Master chain for the song's own tracks: graphic EQ → stereo width → output gain. */
+  private readonly eq: BiquadFilterNode[] = [];
+  private readonly widthGains: { same: GainNode[]; cross: GainNode[] };
+  private readonly trim: GainNode;
+  private readonly conv: ConvolverNode;
+  private reverbSize = 2.4;
   /** Song tuning in semitones, added to every synth note. */
   tuning = 0;
   private readonly echoDelay: DelayNode;
@@ -87,7 +95,33 @@ export class Graph {
     this.masterIn = ctx.createGain();
     this.masterIn.gain.value = 0.9;
     this.synthBus = ctx.createGain();
-    this.synthBus.connect(this.masterIn);
+    // Master chain for the remake only (the reference audio bypasses it).
+    let node: AudioNode = this.synthBus;
+    EQ_BANDS.forEach((f, i) => {
+      const b = ctx.createBiquadFilter();
+      b.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking';
+      b.frequency.value = i === 0 ? 45 : i === EQ_BANDS.length - 1 ? 11000 : f;
+      b.Q.value = 1.1;
+      b.gain.value = 0;
+      node.connect(b);
+      node = b;
+      this.eq.push(b);
+    });
+    // Width as a 2x2 matrix: L' = aL + bR, R' = aR + bL with a = (1+w)/2, b = (1-w)/2.
+    const split = ctx.createChannelSplitter(2);
+    const merge = ctx.createChannelMerger(2);
+    const same = [ctx.createGain(), ctx.createGain()];
+    const cross = [ctx.createGain(), ctx.createGain()];
+    node.connect(split);
+    split.connect(same[0], 0).connect(merge, 0, 0);
+    split.connect(cross[0], 1).connect(merge, 0, 0);
+    split.connect(same[1], 1).connect(merge, 0, 1);
+    split.connect(cross[1], 0).connect(merge, 0, 1);
+    same.forEach((g) => (g.gain.value = 1));
+    cross.forEach((g) => (g.gain.value = 0));
+    this.widthGains = { same, cross };
+    this.trim = ctx.createGain();
+    merge.connect(this.trim).connect(this.masterIn);
     this.backing = ctx.createGain();
     this.backing.connect(this.masterIn);
 
@@ -109,6 +143,7 @@ export class Graph {
     this.reverbIn = ctx.createGain();
     const conv = ctx.createConvolver();
     conv.buffer = makeImpulse(ctx);
+    this.conv = conv;
     const hp = ctx.createBiquadFilter();
     hp.type = 'highpass';
     hp.frequency.value = 200;
@@ -156,6 +191,19 @@ export class Graph {
     const anySolo = song.tracks.some((t) => t.solo);
     const now = this.ctx.currentTime;
     this.tuning = (song.tuning ?? 0) / 100;
+    const m = song.master;
+    if (m) {
+      const set = (p: AudioParam, v: number) => (smooth ? p.setTargetAtTime(v, now, 0.03) : (p.value = v));
+      this.eq.forEach((b, i) => set(b.gain, m.eq[i] ?? 0));
+      const w = Math.max(0, m.width);
+      for (const g of this.widthGains.same) set(g.gain, (1 + w) / 2);
+      for (const g of this.widthGains.cross) set(g.gain, (1 - w) / 2);
+      set(this.trim.gain, Math.pow(10, m.gain / 20));
+      if (Math.abs(m.reverbSize - this.reverbSize) > 0.05) {
+        this.reverbSize = m.reverbSize;
+        this.conv.buffer = makeImpulse(this.ctx, Math.round(m.reverbSize * 10) / 10);
+      }
+    }
     const echoTime = Math.min(4, ((song.echoBeats ?? 0.75) * 60) / song.bpm);
     if (smooth) this.echoDelay.delayTime.setTargetAtTime(echoTime, now, 0.05);
     else this.echoDelay.delayTime.value = echoTime;

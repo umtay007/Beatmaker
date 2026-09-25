@@ -1,3 +1,4 @@
+import { analyzeSound, EQ_BANDS, matchGains, mixStats, type SoundReport } from '../audio/analyze';
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { detectAudioKey } from '../audio/key';
@@ -7,7 +8,7 @@ import { blankSong } from '../beats/templates';
 import { normalizeSong, type Store } from '../core/store';
 import { pcName } from '../core/theory';
 import { Timeline } from '../core/timing';
-import { BAR, cloneSong, MAX_BARS, newNoteId } from '../core/types';
+import { BAR, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, type MasterSettings } from '../core/types';
 import { midiToSong, songToMidi } from '../midi/midi';
 import { exportVideo, pickFormat } from '../visual/exporter';
 import type { VisualPlayer } from '../visual/player';
@@ -252,6 +253,77 @@ export class Actions {
     } finally {
       m.close();
     }
+  }
+
+  /** Measure the reference's mix (EQ, dynamics, width, reverb, echo, saturation, pumping). */
+  analyzeReference(): SoundReport | null {
+    const buf = this.engine.backingBuffer;
+    if (!buf) {
+      toast('Load the original track first (File → Load reference audio…)', 'error', 4000);
+      return null;
+    }
+    const s = this.store.song;
+    return analyzeSound(buf, s.bpm, Math.max(0, -s.audioOffset));
+  }
+
+  /**
+   * Match the song's master to the reference: render the remake, compare its spectrum, stereo
+   * width and level with the same stretch of the reference, and set the master EQ, width and gain
+   * (two passes). Also carry over the measured reverb length and echo timing.
+   */
+  async matchMix(report: SoundReport, onProgress?: (msg: string) => void): Promise<string[]> {
+    const ref = this.engine.backingBuffer;
+    if (!ref) return [];
+    const song = this.store.song;
+    // Compare the loop range if one is set (pick an instrumental part: vocals in the original
+    // would pull the EQ towards the mids), otherwise the start of the song. 30 s is plenty.
+    const tl = this.engine.timeline;
+    const useLoop = song.loop.enabled && song.loop.end > song.loop.start;
+    const from = useLoop ? tl.rawTickToSec(song.loop.start) : 0;
+    const to = Math.min(useLoop ? tl.rawTickToSec(song.loop.end) : this.engine.songEndSec(), from + 30);
+    // The reference plays at song time − audioOffset.
+    const refFrom = Math.max(0, from - song.audioOffset);
+    const len = Math.max(2, Math.min(to - from, ref.duration - refFrom));
+    const goal = mixStats(ref, refFrom, len);
+    const master: MasterSettings = { ...DEFAULT_MASTER, eq: [...DEFAULT_MASTER.eq] };
+    if (report.reverb !== null) master.reverbSize = Math.round(Math.max(0.8, Math.min(4.5, report.reverb)) * 10) / 10;
+    const render = async (m: MasterSettings) => {
+      const copy = cloneSong(song);
+      copy.master = m;
+      return mixStats(await renderSong(copy, { from, to: from + len, tail: 0 }), 0, len);
+    };
+    onProgress?.('Rendering your mix…');
+    let mine = await render(master);
+    master.eq = matchGains(goal.bands, mine.bands);
+    master.width = Math.round(Math.max(0, Math.min(2.5, Math.pow(10, (goal.width - mine.width) / 20))) * 100) / 100;
+    onProgress?.('Refining…');
+    mine = await render(master);
+    const fix = matchGains(goal.bands, mine.bands);
+    master.eq = master.eq.map((g, i) => Math.round(Math.max(-12, Math.min(12, g + fix[i] * 0.7)) * 2) / 2);
+    master.gain = Math.round(Math.max(-12, Math.min(9, goal.rms - mine.rms)) * 2) / 2;
+    const changes: string[] = [];
+    const fmtHz = (f: number) => (f >= 1000 ? `${f / 1000}k` : String(f));
+    const big = master.eq.map((g, i) => [g, i] as const).filter(([g]) => Math.abs(g) >= 2);
+    changes.push(big.length ? `EQ: ${big.map(([g, i]) => `${g > 0 ? '+' : ''}${g} dB at ${fmtHz(EQ_BANDS[i])}`).join(', ')}` : 'EQ: already close, only small tweaks');
+    changes.push(`Stereo width ×${master.width}`, `Output ${master.gain >= 0 ? '+' : ''}${master.gain} dB`);
+    if (report.reverb !== null) changes.push(`Reverb length ${master.reverbSize} s`);
+    this.store.update((s) => {
+      s.master = master;
+      if (report.echo) {
+        s.echoBeats = report.echo.beats;
+        if (!s.tracks.some((t) => (t.echo ?? 0) > 0)) {
+          // Put the echo on the lead: the highest synth part.
+          const synths = s.tracks.filter((t) => t.kind === 'synth' && t.notes.length);
+          const avg = (t: (typeof synths)[number]) => t.notes.reduce((a, n) => a + n.pitch, 0) / t.notes.length;
+          const lead = synths.sort((a, b) => avg(b) - avg(a))[0];
+          if (lead) {
+            lead.echo = 0.22;
+            changes.push(`Echo ${report.echo.label} on ${lead.name}`);
+          }
+        } else changes.push(`Echo time ${report.echo.label}`);
+      }
+    });
+    return changes;
   }
 
   async exportVideo(): Promise<void> {

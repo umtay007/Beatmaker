@@ -1,5 +1,5 @@
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -298,6 +298,12 @@ export function normalizeSong(song: Partial<Song>): Song {
     synthsWithAudio: song.synthsWithAudio ?? true,
     tuning: Math.round(num(song.tuning, 0, -100, 100)),
     echoBeats: num(song.echoBeats, 0.75, 0.125, 4),
+    master: {
+      eq: DEFAULT_MASTER.eq.map((d, i) => Math.round(num(song.master?.eq?.[i], d, -15, 15) * 2) / 2),
+      width: num(song.master?.width, 1, 0, 2.5),
+      gain: num(song.master?.gain, 0, -24, 12),
+      reverbSize: num(song.master?.reverbSize, 2.4, 0.3, 6),
+    },
   };
   return s;
 }

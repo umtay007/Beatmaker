@@ -2,12 +2,13 @@ import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
 import { NOTE_NAMES, SCALES } from '../core/theory';
-import { BAR, MAX_BARS } from '../core/types';
+import { BAR, DEFAULT_MASTER, MAX_BARS, type MasterSettings } from '../core/types';
 import { formatSupport } from '../visual/exporter';
 import { FONTS, PALETTES, PRESETS, presetSettings, type VisualSettings } from '../visual/settings';
 import type { Actions } from './actions';
 import { colorField, numberField, rangeField, segField, selectField, textField, toggleField, type Bound } from './controls';
 import { h, icon } from './dom';
+import { eqEditor, showSoundReport } from './soundmatch';
 
 type V = VisualSettings;
 type Key = keyof V;
@@ -49,7 +50,7 @@ export class Inspector {
   private tabs: Record<string, HTMLButtonElement> = {};
   private bounds: { b: Bound; when?: (v: V) => boolean }[] = [];
   private refreshers: (() => void)[] = [];
-  private closed = new Set<string>(['Background', 'Particles', 'Camera', 'Post FX', 'Chord display', 'Audio spectrum & progress', 'Transition', 'Backing audio (sync any song)', 'Files']);
+  private closed = new Set<string>(['Master (EQ, width, level)', 'Background', 'Particles', 'Camera', 'Post FX', 'Chord display', 'Audio spectrum & progress', 'Transition', 'Backing audio (sync any song)', 'Files']);
 
   constructor(
     private store: Store,
@@ -312,6 +313,38 @@ export class Inspector {
     ];
     this.body.append(this.section('Song', songCtl));
 
+    // Master: the finishing chain for the song's own tracks (matched to a reference by analysis).
+    const eq = eqEditor(s);
+    this.refreshers.push(eq.refresh);
+    const masterField = (label: string, key: 'width' | 'gain' | 'reverbSize', min: number, max: number, step: number, fmt: (v: number) => string, help: string) =>
+      this.bind(
+        rangeField(label, {
+          min,
+          max,
+          step,
+          format: fmt,
+          get: () => (s.song.master ?? DEFAULT_MASTER)[key],
+          set: (v) => {
+            const m: MasterSettings = (s.song.master ??= { ...DEFAULT_MASTER, eq: [...DEFAULT_MASTER.eq] });
+            m[key] = v;
+            s.touch();
+          },
+          onStart: () => s.beginGesture(),
+          onEnd: () => s.endGesture(),
+          help,
+        }),
+      );
+    this.body.append(
+      this.section('Master (EQ, width, level)', [
+        h('p', { class: 'section-note' }, 'Shapes your whole mix (never the reference audio). “Analyze sound” under Backing audio can set all of this to match the original.'),
+        eq.el,
+        masterField('Stereo width', 'width', 0, 2.5, 0.05, (v) => `×${v.toFixed(2)}`, '0 = mono, 1 = unchanged, 2 = extra wide'),
+        masterField('Output level', 'gain', -24, 12, 0.5, (v) => `${v > 0 ? '+' : ''}${v} dB`, 'Louder pushes harder into the master limiter, like mastering'),
+        masterField('Reverb length', 'reverbSize', 0.3, 6, 0.1, (v) => `${v.toFixed(1)} s`, 'Length of the shared reverb every track sends to'),
+        h('button', { class: 'btn btn-block', onclick: () => s.update((so) => (so.master = { ...DEFAULT_MASTER, eq: [...DEFAULT_MASTER.eq] })) }, icon('broom', 15), 'Reset master'),
+      ]),
+    );
+
     // Backing audio
     const nameEl = h('div', { class: 'kv' }, h('span', null, 'Audio'), h('b', null, '—'));
     const removeBtn = h('button', { class: 'btn', onclick: () => { this.engine.clearBacking(); this.refresh(); } }, icon('trash', 15), 'Remove');
@@ -326,6 +359,7 @@ export class Inspector {
         nameEl,
         h('div', { class: 'btn-row' }, loadBtn, removeBtn),
         h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo, key & align grid'),
+        h('button', { class: 'btn btn-block', title: 'Measure the EQ, compression, width, reverb, echo, saturation and pumping of the original, and match your mix to it', onclick: () => showSoundReport(a) }, icon('wave', 15), 'Analyze sound & match mix…'),
         h(
           'div',
           { class: 'nudge-row' },

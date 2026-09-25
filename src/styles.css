@@ -1537,3 +1537,95 @@ button {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
 }
+
+/* ------------------------------------------------------------------ Sound analysis & master EQ */
+
+.sound-report h3 {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+
+.sound-report .kv {
+  padding: 3px 0;
+  gap: 12px;
+}
+
+.report-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.band-chart {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 6px;
+  height: 110px;
+}
+
+.band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.band-bar {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  background: var(--raised-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.band-bar i {
+  display: block;
+  width: 100%;
+  background: linear-gradient(180deg, var(--accent), var(--accent-soft));
+  border-radius: 4px 4px 0 0;
+}
+
+.eq-editor {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  height: 130px;
+  margin: 4px 0 10px;
+}
+
+.eq-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
+  color: var(--dim);
+  min-width: 0;
+}
+
+.eq-range {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  flex: 1;
+  width: 18px;
+  min-height: 0;
+}
+
+.eq-range::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  background: var(--line-2);
+}
+
+.eq-range::-moz-range-track {
+  width: 4px;
+  height: 100%;
+  background: var(--line-2);
+}

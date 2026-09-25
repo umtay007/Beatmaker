@@ -69,7 +69,22 @@ export interface Song {
   tuning?: number;
   /** Echo delay time in beats (0.75 = dotted 8th, 2/3 = quarter triplet). */
   echoBeats?: number;
+  /** Master processing of the song's own tracks (not the reference audio). */
+  master?: MasterSettings;
 }
+
+export interface MasterSettings {
+  /** Graphic EQ gains in dB for 31, 63, 125, 250, 500 Hz, 1, 2, 4, 8 and 16 kHz. */
+  eq: number[];
+  /** Stereo width: 0 = mono, 1 = unchanged, 2 = twice the side signal. */
+  width: number;
+  /** Output gain in dB (into the master compressor and limiter). */
+  gain: number;
+  /** Reverb length in seconds. */
+  reverbSize: number;
+}
+
+export const DEFAULT_MASTER: MasterSettings = { eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], width: 1, gain: 0, reverbSize: 2.4 };
 
 let nextNoteId = 1;
 export function newNoteId(): number {
