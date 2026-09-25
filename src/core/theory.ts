@@ -1,8 +1,8 @@
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 
-export function noteName(pitch: number): string {
-  return NOTE_NAMES[((pitch % 12) + 12) % 12] + (Math.floor(pitch / 12) - 1);
+export function noteName(pitch: number, preferFlats = false): string {
+  return (preferFlats ? NOTE_NAMES_FLAT : NOTE_NAMES)[((pitch % 12) + 12) % 12] + (Math.floor(pitch / 12) - 1);
 }
 
 export function pcName(pc: number, preferFlats = false): string {

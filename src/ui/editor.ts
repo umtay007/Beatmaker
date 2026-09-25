@@ -1,6 +1,6 @@
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
-import { DRUM_VOICES, inScale, noteName } from '../core/theory';
+import { DRUM_VOICES, inScale, keyPrefersFlats, noteName } from '../core/theory';
 import { BAR, newNoteId, PPQ, songLengthTicks, STEP, type Note, type Track } from '../core/types';
 
 const RULER = 24;
@@ -681,6 +681,7 @@ export class Editor {
     const ppt = this.pxPerTick;
     const color = t.color;
     const drums = this.isDrums;
+    const flats = keyPrefersFlats(song.key, song.scale);
 
     // Row backgrounds
     const r0 = Math.max(0, Math.floor(this.scrollY / rowH));
@@ -811,7 +812,7 @@ export class Editor {
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.font = '600 9px Inter, system-ui, sans-serif';
         ctx.textBaseline = 'middle';
-        ctx.fillText(noteName(n.pitch), x0 + 4, y + rowH / 2 + 0.5);
+        ctx.fillText(noteName(n.pitch, flats), x0 + 4, y + rowH / 2 + 0.5);
       }
     }
 
