@@ -199,6 +199,19 @@ function pulseHarmonics(duty: number, n = 32): number[] {
   return h;
 }
 
+/** Seconds covered by gaussDecay(): long enough to reach silence for tau up to ~0.6 s. */
+const GAUSS_LEN = 1.6;
+/** Gain curve: a 3 ms attack, then peak * exp(-(t / tau)^2). */
+function gaussDecay(peak: number, tau: number): Float32Array<ArrayBuffer> {
+  const n = 512;
+  const c = new Float32Array(n);
+  for (let i = 1; i < n; i++) {
+    const t = (i / (n - 1)) * GAUSS_LEN;
+    c[i] = peak * Math.exp(-((t / tau) ** 2));
+  }
+  return c;
+}
+
 const curves = new Map<number, Float32Array<ArrayBuffer>>();
 function drive(ctx: BaseAudioContext, amount: number): WaveShaperNode {
   let c = curves.get(amount);
@@ -278,6 +291,34 @@ export const INSTRUMENTS: InstrumentDef[] = [
       o.connect(amp);
       g2.connect(amp);
       amp.connect(drive(ctx, 2)).connect(v.filter('lowpass', 1600)).connect(v.gain(0.6)).connect(v.rel);
+      return v.finish();
+    },
+  },
+  {
+    id: 'bass808p',
+    label: '808 Punch',
+    group: 'Bass',
+    mono: true,
+    octave: 1,
+    build(ctx, out, a) {
+      // Florida-style 808 with the kick built in: the pitch starts about 5x higher and drops into
+      // the note within ~40 ms, then the sine fades with a rounded (Gaussian) decay. Saturation
+      // adds the odd harmonics that make it audible on small speakers.
+      const v = new VoiceKit(ctx, out, a, 0.05, 0.09);
+      const o = v.osc('sine');
+      const amp = v.gain(0);
+      if (a.glideFrom !== undefined) {
+        amp.gain.setValueAtTime(0, a.time);
+        amp.gain.linearRampToValueAtTime(a.vel * 0.7, a.time + 0.004);
+        amp.gain.setTargetAtTime(0, a.time + 0.004, 0.35);
+      } else {
+        o.frequency.cancelScheduledValues(a.time);
+        o.frequency.setValueAtTime(v.f * 5, a.time);
+        o.frequency.setTargetAtTime(v.f, a.time, 0.013);
+        amp.gain.setValueCurveAtTime(gaussDecay(a.vel, 0.49), a.time, GAUSS_LEN);
+      }
+      o.connect(amp);
+      amp.connect(drive(ctx, 1.8)).connect(v.filter('lowpass', 1400)).connect(v.gain(0.62)).connect(v.rel);
       return v.finish();
     },
   },
@@ -618,6 +659,25 @@ export const INSTRUMENTS: InstrumentDef[] = [
       const ng = v.gain(0);
       v.adsr(ng.gain, 0.03, 0.15, 0.25, a.vel * 0.12);
       n.connect(bp).connect(ng).connect(amp);
+      amp.connect(v.rel);
+      return v.finish();
+    },
+  },
+  {
+    id: 'sinelead',
+    label: 'Sine Lead',
+    group: 'Lead',
+    octave: 5,
+    build(ctx, out, a) {
+      // Soft trap lead: a near-sine tone with a quick swell and a fast fade, a little vibrato.
+      const v = new VoiceKit(ctx, out, a, 0.08);
+      const o = v.osc('sine');
+      v.lfo(o.detune, 5.5, 8, 0.15);
+      const amp = v.gain(0);
+      v.adsr(amp.gain, 0.022, 0.14, 0.12, a.vel * 0.4);
+      o.connect(amp);
+      v.osc('sine', 2).connect(v.gain(0.22)).connect(amp);
+      v.osc('sine', 3).connect(v.gain(0.07)).connect(amp);
       amp.connect(v.rel);
       return v.finish();
     },

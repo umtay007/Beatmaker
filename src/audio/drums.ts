@@ -62,6 +62,7 @@ export const KITS: KitDef[] = [
     36: { f0: 190, f1: 50, pitchDecay: 0.04, decay: 0.42, click: 0.6, drive: 1.8 },
     38: { tone: 480, toneDecay: 0.05, noise: 1.1, noiseDecay: 0.1, hp: 1300, lp: 15000, body: 0.45 },
     39: { freq: 2500, decay: 0.12, spread: 0.008, q: 0.55 },
+    37: { freq: 2400, decay: 0.04 },
     42: { decay: 0.04, hp: 6500, bp: 9500, noiseMix: 0.55 },
     46: { decay: 0.3, hp: 6500, bp: 9500, noiseMix: 0.55 },
   }),

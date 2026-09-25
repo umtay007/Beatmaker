@@ -19,9 +19,9 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
   and drum tracks use a step grid. Both have a velocity lane, box selection, copy/paste, duplicate,
   transpose, nudge, quantize, humanize and undo/redo.
 - **7 synthesized drum kits** (Trap 808, Florida Trap, Boom Bap, Lo-Fi Dusty, House 909, Breaks,
-  Retro 80s) and **22 instruments**: 808, 808 Smooth, sub, deep, reese and log-drum basses, pluck,
-  marimba, electric piano, piano, organ, pad, strings, wide dark strings, choir, supersaw, lead,
-  flute, brass, chiptune, bell and glockenspiel.
+  Retro 80s) and **24 instruments**: 808, 808 Smooth, 808 Punch (with the kick built in), sub, deep,
+  reese and log-drum basses, pluck, marimba, electric piano, piano, organ, pad, strings, wide dark
+  strings, choir, supersaw, synth lead, sine lead, flute, brass, chiptune, bell and glockenspiel.
 - Swing, tempo, key and scale, a loop range, a metronome, and live input from your computer
   keyboard with recording.
 - A **"New part" button** that rewrites a single track in any style.
