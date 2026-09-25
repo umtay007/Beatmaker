@@ -1,6 +1,8 @@
 /**
  * Real, recorded instruments, streamed on demand from the tonejs-instruments sample set
- * (github.com/nbrosowsky/tonejs-instruments, CC BY 3.0) through the jsDelivr npm CDN.
+ * (github.com/nbrosowsky/tonejs-instruments, CC BY 3.0) through the jsDelivr npm CDN, and from the
+ * FluidR3 GM soundfont (Frank Wen, CC BY 3.0) as pre-rendered notes from
+ * github.com/gleitz/midi-js-soundfonts: the sections, choirs and colours the first set lacks.
  *
  * Only the samples a song needs are fetched (the nearest recorded note to every pitch used), then
  * decoded once and cached. Until a sample is ready, or when offline, a synthesized stand-in plays.
@@ -10,10 +12,12 @@ export interface SampledDef {
   id: string;
   label: string;
   group: string;
-  /** npm package (without the tonejs-instrument- prefix and -mp3 suffix) and version. */
-  pkg: string;
-  version: string;
-  /** Recorded notes, as file names (e.g. "As3" = A#3). */
+  /** tonejs-instruments: npm package (without the tonejs-instrument- prefix and -mp3 suffix) and version. */
+  pkg?: string;
+  version?: string;
+  /** FluidR3 GM soundfont: the instrument's folder name (e.g. "string_ensemble_1"). */
+  gm?: string;
+  /** Recorded notes, as file names (e.g. "As3" = A#3, "Bb3" = B♭3). */
   notes: string;
   /** Keep every n-th recorded note (dense chromatic sets would mean a lot of downloading). */
   stride?: number;
@@ -29,6 +33,14 @@ export interface SampledDef {
   sustain?: boolean;
   mono?: boolean;
   octave: number;
+}
+
+const FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+/** A FluidR3 GM instrument recorded over lo..hi (MIDI), sampled every 3 semitones. */
+function gm(id: string, label: string, group: string, name: string, fallback: string, lo: number, hi: number, o: Omit<SampledDef, 'id' | 'label' | 'group' | 'notes' | 'fallback'>): SampledDef {
+  const notes: string[] = [];
+  for (let p = lo; p <= hi; p += 3) notes.push(FLAT[p % 12] + (Math.floor(p / 12) - 1));
+  return { id, label, group, gm: name, notes: notes.join(' '), fallback, ...o };
 }
 
 export const SAMPLED: SampledDef[] = [
@@ -52,6 +64,25 @@ export const SAMPLED: SampledDef[] = [
   { id: 'sclarinet', label: 'Clarinet', group: 'Woodwind', pkg: 'clarinet', version: '1.1.2', notes: 'D3 F3 As3 D4 F4 As4 D5 F5 As5 D6 Fs6', fallback: 'flute', attack: 0.03, release: 0.15, gain: 0.7, sustain: true, mono: true, octave: 4 },
   { id: 'sbassoon', label: 'Bassoon', group: 'Woodwind', pkg: 'bassoon', version: '1.1.2', notes: 'G2 A2 C3 G3 A3 C4 E4 G4 A4 C5', fallback: 'brass', attack: 0.03, release: 0.15, gain: 0.75, sustain: true, mono: true, octave: 3 },
   { id: 'sxylo', label: 'Xylophone', group: 'Mallet', pkg: 'xylophone', version: '1.1.2', notes: 'G4 C5 G5 C6 G6 C7 G7 C8', fallback: 'marimba', release: 0.4, gain: 0.8, velocityTone: true, octave: 5 },
+  // FluidR3 GM soundfont (every key is recorded; a note every 3 semitones keeps downloads small).
+  gm('gstrings', 'String Section', 'Strings', 'string_ensemble_1', 'strings', 36, 96, { attack: 0.03, release: 0.35, gain: 0.7, sustain: true, octave: 4 }),
+  gm('gtremolo', 'Tremolo Strings', 'Strings', 'tremolo_strings', 'strings', 36, 96, { attack: 0.03, release: 0.3, gain: 0.7, sustain: true, octave: 4 }),
+  gm('gpizz', 'Pizzicato Section', 'Strings', 'pizzicato_strings', 'pizz', 36, 96, { release: 0.2, gain: 0.8, velocityTone: true, octave: 4 }),
+  gm('gchoir', 'Choir (aahs)', 'Vocal', 'choir_aahs', 'choir', 43, 84, { attack: 0.04, release: 0.35, gain: 0.7, sustain: true, octave: 4 }),
+  gm('goohs', 'Choir (oohs)', 'Vocal', 'voice_oohs', 'choir', 43, 84, { attack: 0.04, release: 0.3, gain: 0.7, sustain: true, octave: 4 }),
+  gm('gbrass', 'Brass Section', 'Brass', 'brass_section', 'brass', 36, 84, { attack: 0.02, release: 0.2, gain: 0.65, sustain: true, octave: 4 }),
+  gm('goboe', 'Oboe', 'Woodwind', 'oboe', 'flute', 58, 91, { attack: 0.02, release: 0.15, gain: 0.7, sustain: true, mono: true, octave: 5 }),
+  gm('gpanflute', 'Pan Flute (recorded)', 'Woodwind', 'pan_flute', 'panflute', 60, 96, { attack: 0.02, release: 0.2, gain: 0.7, sustain: true, octave: 5 }),
+  gm('gocarina', 'Ocarina', 'Woodwind', 'ocarina', 'flute', 60, 96, { attack: 0.02, release: 0.15, gain: 0.7, sustain: true, mono: true, octave: 5 }),
+  gm('gwhistle', 'Whistle (recorded)', 'Woodwind', 'whistle', 'whistle', 60, 96, { attack: 0.02, release: 0.15, gain: 0.7, sustain: true, mono: true, octave: 5 }),
+  gm('gepiano', 'Electric Piano (Rhodes)', 'Keys', 'electric_piano_1', 'epiano', 28, 103, { release: 0.3, gain: 0.8, velocityTone: true, octave: 4 }),
+  gm('gharpsichord', 'Harpsichord', 'Keys', 'harpsichord', 'pluck', 29, 89, { release: 0.25, gain: 0.8, octave: 4 }),
+  gm('gmusicbox', 'Music Box (recorded)', 'Bell', 'music_box', 'musicbox', 60, 96, { release: 0.5, gain: 0.8, octave: 5 }),
+  gm('gcelesta', 'Celesta (recorded)', 'Bell', 'celesta', 'celesta', 60, 108, { release: 0.4, gain: 0.8, velocityTone: true, octave: 5 }),
+  gm('gglock', 'Glockenspiel (recorded)', 'Bell', 'glockenspiel', 'glock', 67, 108, { release: 0.5, gain: 0.75, octave: 6 }),
+  gm('gbells', 'Tubular Bells (recorded)', 'Bell', 'tubular_bells', 'tubular', 60, 77, { release: 0.8, gain: 0.8, octave: 4 }),
+  gm('gvibes', 'Vibraphone (recorded)', 'Mallet', 'vibraphone', 'vibes', 53, 89, { release: 0.6, gain: 0.8, velocityTone: true, octave: 4 }),
+  gm('gmarimba', 'Marimba (recorded)', 'Mallet', 'marimba', 'marimba', 45, 96, { release: 0.3, gain: 0.8, velocityTone: true, octave: 4 }),
 ];
 
 export const SAMPLED_BY_ID = new Map(SAMPLED.map((d) => [d.id, d]));
@@ -59,9 +90,9 @@ export const SAMPLED_BY_ID = new Map(SAMPLED.map((d) => [d.id, d]));
 const PC: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
 function noteToMidi(name: string): number {
-  const m = /^([A-G])(s?)(-?\d)$/.exec(name);
+  const m = /^([A-G])(s|b)?(-?\d)$/.exec(name);
   if (!m) return NaN;
-  return 12 * (Number(m[3]) + 1) + PC[m[1]] + (m[2] ? 1 : 0);
+  return 12 * (Number(m[3]) + 1) + PC[m[1]] + (m[2] === 's' ? 1 : m[2] === 'b' ? -1 : 0);
 }
 
 interface Recorded {
@@ -93,6 +124,7 @@ export function nearest(def: SampledDef, pitch: number): Recorded {
 }
 
 function url(def: SampledDef, name: string): string {
+  if (def.gm) return `https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/${def.gm}-mp3/${name}.mp3`;
   return `https://cdn.jsdelivr.net/npm/tonejs-instrument-${def.pkg}-mp3@${def.version}/${encodeURIComponent(name)}.mp3`;
 }
 
@@ -111,6 +143,16 @@ function leadIn(buf: AudioBuffer): number {
   let i = 0;
   while (i < d.length && Math.abs(d[i]) < thr) i++;
   return Math.max(0, i / buf.sampleRate - 0.002);
+}
+function normalize(buf: AudioBuffer, peakTo: number): void {
+  let peak = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) for (const v of buf.getChannelData(c)) peak = Math.max(peak, Math.abs(v));
+  if (peak <= 0) return;
+  const k = peakTo / peak;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) d[i] *= k;
+  }
 }
 const loads = new Map<string, Promise<AudioBuffer | null>>();
 let decoder: BaseAudioContext | null = null;
@@ -185,6 +227,8 @@ function load(def: SampledDef, name: string): Promise<AudioBuffer | null> {
         const data = await slot(() => fetchSample(url(def, name)));
         decoder ??= new OfflineAudioContext(2, 1, 44100);
         const buf = await decoder.decodeAudioData(data);
+        // The soundfont renders sit about 18 dB under the other set: bring each to a -3 dB peak.
+        if (def.gm) normalize(buf, 0.7);
         leads.set(key, Math.min(0.2, leadIn(buf)));
         buffers.set(key, buf);
         return buf;

@@ -4,7 +4,7 @@ Make any beat from scratch in your browser, then turn it into a synced music vid
 
 Beatmaker is a beat maker and a MIDI music-video visualizer (in the spirit of
 [VIDI Studio](https://app.dozingwhale.net/vidi-studio/)) in one app. Drums and most instruments are
-synthesized in real time with the Web Audio API; 20 real, recorded instruments stream in on demand
+synthesized in real time with the Web Audio API; 38 real, recorded instruments stream in on demand
 when you use them. The visualizer draws each note of your beat as it plays, and you can export the
 result as an MP4 or WebM video.
 
@@ -19,11 +19,14 @@ result as an MP4 or WebM video.
 - **Start blank and program your own.** Melodic tracks use a piano roll with scale highlighting,
   and drum tracks use a step grid. Both have a velocity lane, box selection, copy/paste, duplicate,
   transpose, nudge, quantize, humanize and undo/redo.
-- **66 instruments** in families (Keys, Guitar, Strings, Brass, Woodwind, Bass, Pluck, Mallet, Bell,
+- **84 instruments** in families (Keys, Guitar, Strings, Brass, Woodwind, Bass, Pluck, Mallet, Bell,
   Pad, Lead, Vocal):
-  - **20 real, sampled instruments**: grand piano, pipe organ, harmonium, acoustic, nylon and clean
+  - **38 real, sampled instruments**: grand piano, pipe organ, harmonium, acoustic, nylon and clean
     electric guitar, electric and upright bass, violin, cello, harp, trumpet, trombone, French horn,
-    tuba, saxophone, flute, clarinet, bassoon and xylophone. Only the notes a song uses are
+    tuba, saxophone, flute, clarinet, bassoon and xylophone, plus ensembles and colours: a string
+    section, tremolo and pizzicato strings, choir (aahs and oohs), brass section, oboe, pan flute,
+    ocarina, whistle, Rhodes-style electric piano, harpsichord, music box, celesta, glockenspiel,
+    tubular bells, vibraphone and marimba. Only the notes a song uses are
     downloaded; offline, a matching synth stands in, and exports retry the download first and
     warn you which instruments would still use a stand-in.
   - **Physically modelled plucked strings**: koto, sitar (with its buzzing bridge), pizzicato strings.
@@ -157,7 +160,10 @@ keep the tab visible while it records.
 ## Credits
 
 The sampled instruments are the [tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
-sample set by Nicholaus Brosowsky (CC BY 3.0), loaded from the jsDelivr CDN.
+sample set by Nicholaus Brosowsky (CC BY 3.0), loaded from the jsDelivr CDN, and the Fluid R3 GM
+SoundFont by Frank Wen (CC BY 3.0) in the pre-rendered notes of
+[gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), loaded from its GitHub Pages
+site. Those renders stop around 8 kHz, so a quiet high-passed violin layer can add the air back.
 
 The recorded drum machines come from the [fluid-music/open-drums](https://github.com/fluid-music/open-drums)
 packages, also loaded from jsDelivr: the TR-808 set by Michael Fischer (free, no restrictions), the
