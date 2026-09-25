@@ -423,6 +423,7 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
     }
     case 'metal': {
       for (const [ratio, lvl] of [[1, 0.5], [2.76, 0.3], [5.4, 0.18], [8.93, 0.1]] as const) {
+        if (p.freq * ratio >= ctx.sampleRate * 0.49) continue; // above Nyquist
         const o = ctx.createOscillator();
         o.frequency.value = p.freq * ratio;
         const g = ctx.createGain();
