@@ -165,7 +165,7 @@ export class AudioEngine {
     const oldKey = this.tlKey;
     this.refreshTimeline();
     if (this.graph) {
-      this.graph.applyMix(this.song);
+      this.graph.applyMix(this.song, true, this.playing ? null : this.timeline.secToTick(Math.max(0, this.pausedAt)));
       this.applySynthMute();
       void this.ensureKits();
     }
@@ -259,13 +259,20 @@ export class AudioEngine {
     if (!this.playing) return;
     this.pausedAt = this.position();
     this.halt();
+    this.restMix();
     this.onState?.();
   }
 
   stop(): void {
     this.halt();
     this.pausedAt = 0;
+    this.restMix();
     this.onState?.();
+  }
+
+  /** Stopped: automated settings sit at their value under the playhead. */
+  private restMix(): void {
+    this.graph?.applyMix(this.song, true, this.timeline.secToTick(Math.max(0, this.pausedAt)));
   }
 
   toggle(): void {
@@ -328,6 +335,7 @@ export class AudioEngine {
       const endPos = this.untilSec;
       this.halt();
       this.pausedAt = this.exportMode ? endPos : 0;
+      this.restMix();
       this.onState?.();
       this.onEnded?.();
     }
@@ -347,6 +355,11 @@ export class AudioEngine {
         // One bad voice must not stall the scheduler (it would re-schedule this range forever).
         console.warn('Could not schedule a note', e);
       }
+    }
+    // Automation, as one continuous curve per lane across these chunks.
+    const first = Math.abs(from - seg.song) < 1e-9;
+    for (const t of this.song.tracks) {
+      if (t.automation) this.graph!.automate(t, this.song, this.timeline, from, to, (sec) => seg.ctx + (sec - seg.song), first);
     }
     if (this.store.ui.metronome && !this.exportMode) this.scheduleClicks(from, to, seg);
   }

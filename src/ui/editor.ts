@@ -1,14 +1,15 @@
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
+import { AUTO_BY_ID, AUTO_PARAMS, fromUnit, toUnit, type AutoParamDef } from '../core/automation';
 import { DRUM_VOICES, inScale, keyPrefersFlats, noteName } from '../core/theory';
-import { BAR, newNoteId, PPQ, songLengthTicks, STEP, type Note, type Track } from '../core/types';
+import { BAR, newNoteId, PPQ, songLengthTicks, STEP, type AutoPoint, type Note, type Track } from '../core/types';
+import { showMenu } from './dom';
 
 const RULER = 24;
-const VEL = 54;
 const GUTTER = 84;
 
 interface Drag {
-  kind: 'create' | 'move' | 'resize' | 'marquee' | 'paint' | 'erase' | 'velocity' | 'seek' | 'loop' | 'hscroll' | 'pan';
+  kind: 'create' | 'move' | 'resize' | 'marquee' | 'paint' | 'erase' | 'velocity' | 'seek' | 'loop' | 'hscroll' | 'pan' | 'auto';
   x0: number;
   y0: number;
   tick0: number;
@@ -19,6 +20,8 @@ interface Drag {
   paintVel?: number;
   scroll0?: number;
   scrollY0?: number;
+  /** Automation point being dragged. */
+  point?: AutoPoint;
 }
 
 /** Canvas based piano roll (melodic tracks) and step grid (drum tracks). */
@@ -91,8 +94,19 @@ export class Editor {
     return 127 - pitch;
   }
 
+  /** The automation lane shown in the bottom lane, if any (else velocities). */
+  private get autoDef(): AutoParamDef | null {
+    const l = this.store.ui.lane;
+    return l === 'velocity' ? null : (AUTO_BY_ID.get(l) ?? null);
+  }
+
+  /** Height of the bottom lane: taller for automation curves. */
+  private get laneH(): number {
+    return this.autoDef ? 76 : 54;
+  }
+
   private get gridH(): number {
-    return this.h - RULER - VEL;
+    return this.h - RULER - this.laneH;
   }
 
   private get pxPerTick(): number {
@@ -271,13 +285,35 @@ export class Editor {
       }
       return;
     }
-    // Gutter: preview the key / drum.
+    // Gutter: preview the key / drum; the bottom lane's name picks what the lane shows.
     if (x < GUTTER) {
       if (y < RULER + this.gridH) this.engine.preview(t, this.rowToPitch(row), 0.85);
+      else this.laneMenu(e.clientX, e.clientY);
       return;
     }
-    // Velocity lane.
+    // Bottom lane: its name picks what it shows; the lane edits velocities or automation.
     if (y > RULER + this.gridH) {
+      const def = this.autoDef;
+      if (def) {
+        this.store.beginGesture();
+        const pts = (t.automation ??= {})[def.id] ??= [];
+        const hit = this.pointAt(pts, x, y);
+        if (e.button === 2 || e.altKey) {
+          if (hit) pts.splice(pts.indexOf(hit), 1);
+          if (!pts.length) delete t.automation[def.id];
+          this.store.touch();
+          this.store.endGesture();
+          return;
+        }
+        const point = hit ?? { tick: Math.max(0, this.snapRound(tick)), value: this.laneValue(def, y) };
+        if (!hit) {
+          pts.push(point);
+          pts.sort((a, b) => a.tick - b.tick);
+          this.store.touch();
+        }
+        this.drag = { kind: 'auto', ...base, point };
+        return;
+      }
       this.store.beginGesture();
       this.drag = { kind: 'velocity', ...base };
       this.setVelocityAt(x, y);
@@ -390,6 +426,16 @@ export class Editor {
       case 'velocity':
         this.setVelocityAt(x, y);
         break;
+      case 'auto': {
+        const def = this.autoDef;
+        const pts = def && t.automation?.[def.id];
+        if (!def || !pts || !d.point) break;
+        d.point.tick = Math.max(0, this.snapRound(tick));
+        d.point.value = this.laneValue(def, y);
+        pts.sort((a, b) => a.tick - b.tick);
+        this.store.touch();
+        break;
+      }
       case 'paint':
         if (row >= 0 && row < this.rows && x > GUTTER) this.paintCell(tick, row, d.paintVel ?? 0.9);
         break;
@@ -459,7 +505,16 @@ export class Editor {
       }
     }
     if (d.kind === 'create' && d.created) this.store.ui.noteLength = d.created.dur;
-    if (['create', 'move', 'resize', 'paint', 'erase', 'velocity', 'loop'].includes(d.kind)) {
+    if (d.kind === 'auto') {
+      // Dragged onto another point's tick: the one dragged wins.
+      const def = this.autoDef;
+      const pts = def && this.track?.automation?.[def.id];
+      if (pts && d.point) {
+        const kept = pts.filter((p) => p === d.point || p.tick !== d.point!.tick);
+        pts.splice(0, pts.length, ...kept);
+      }
+    }
+    if (['create', 'move', 'resize', 'paint', 'erase', 'velocity', 'loop', 'auto'].includes(d.kind)) {
       this.sortNotes();
       this.store.endGesture();
       this.store.touch();
@@ -497,11 +552,63 @@ export class Editor {
     }
   }
 
+  /** Lane value at a y position (the lane spans 6 px in from its edges). */
+  private laneValue(def: AutoParamDef, y: number): number {
+    const top = RULER + this.gridH + 8;
+    const u = 1 - (y - top) / (this.laneH - 16);
+    const v = fromUnit(def, u);
+    return def.log ? Math.round(v) : Math.round(v * 100) / 100;
+  }
+
+  private laneY(def: AutoParamDef, v: number): number {
+    return RULER + this.gridH + 8 + (1 - toUnit(def, v)) * (this.laneH - 16);
+  }
+
+  private pointAt(pts: AutoPoint[], x: number, y: number): AutoPoint | undefined {
+    const def = this.autoDef!;
+    // Points sit on the grid, so allow half a grid step either side (and at least 8 px).
+    const reach = Math.max(8, (this.store.ui.grid * this.pxPerTick) / 2);
+    let best: AutoPoint | undefined;
+    let bestD = Infinity;
+    for (const p of pts) {
+      const dx = Math.abs(this.tickToX(p.tick) - x);
+      const dy = Math.abs(this.laneY(def, p.value) - y);
+      if (dx <= reach && dy <= 12 && dx + dy < bestD) {
+        best = p;
+        bestD = dx + dy;
+      }
+    }
+    return best;
+  }
+
+  /** Pick what the bottom lane shows. */
+  private laneMenu(x: number, y: number): void {
+    const t = this.track;
+    const anchor = document.createElement('div');
+    anchor.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:1px;height:1px`;
+    document.body.append(anchor);
+    const cur = this.store.ui.lane;
+    const has = (id: string) => !!t?.automation?.[id as AutoParamDef['id']]?.length;
+    const def = this.autoDef;
+    showMenu(anchor, [
+      { label: 'Velocity', icon: cur === 'velocity' ? 'check' : undefined, action: () => this.store.setUI({ lane: 'velocity' }) },
+      '-',
+      ...AUTO_PARAMS.map((p) => ({ label: `${p.label} automation`, hint: has(p.id) ? 'in use' : undefined, icon: cur === p.id ? 'check' : undefined, action: () => this.store.setUI({ lane: p.id }) })),
+      ...(def && has(def.id)
+        ? (['-', { label: `Clear ${def.label.toLowerCase()} automation`, icon: 'broom', danger: true, action: () => this.store.update(() => {
+            const tr = this.track;
+            if (tr?.automation) delete tr.automation[def.id];
+          }) }] as const)
+        : []),
+    ]);
+    anchor.remove();
+  }
+
   private setVelocityAt(x: number, y: number): void {
     const t = this.track;
     if (!t) return;
     const top = RULER + this.gridH + 6;
-    const vh = VEL - 12;
+    const vh = this.laneH - 12;
     const vel = Math.max(0.05, Math.min(1, 1 - (y - top) / vh));
     const useSel = this.selection.size > 0;
     let changed = false;
@@ -924,20 +1031,26 @@ export class Editor {
     ctx.textBaseline = 'middle';
     ctx.fillText(drums ? 'STEPS' : 'KEYS', 8, RULER / 2);
 
-    // Velocity lane
+    // Bottom lane: velocities, or an automation curve
     const vTop = gridBottom;
+    const LANE = this.laneH;
+    const def = this.autoDef;
     ctx.fillStyle = '#0b0e15';
-    ctx.fillRect(0, vTop, W, VEL);
+    ctx.fillRect(0, vTop, W, LANE);
     ctx.fillStyle = '#232a3d';
     ctx.fillRect(0, vTop, W, 1);
     ctx.fillStyle = '#626985';
-    ctx.fillText('VELOCITY', 8, vTop + 14);
+    ctx.fillText(`${def ? def.label.toUpperCase() : 'VELOCITY'} ▾`, 8, vTop + 14);
+    if (def) {
+      this.drawAutomation(def, t, vTop, W);
+      ctx.globalAlpha = 1;
+    }
     ctx.save();
     ctx.beginPath();
-    ctx.rect(GUTTER, vTop, W - GUTTER, VEL);
+    ctx.rect(GUTTER, vTop, W - GUTTER, LANE);
     ctx.clip();
-    const vh = VEL - 12;
-    for (const n of t.notes) {
+    const vh = LANE - 12;
+    for (const n of def ? [] : t.notes) {
       const x = this.tickToX(n.start);
       if (x < GUTTER - 4 || x > W) continue;
       const hgt = vh * n.vel;
@@ -971,6 +1084,64 @@ export class Editor {
       ctx.closePath();
       ctx.fill();
     }
+  }
+
+  /** An automation lane: the curve (straight between points, flat beyond them) and its points. */
+  private drawAutomation(def: AutoParamDef, t: Track, top: number, W: number): void {
+    const ctx = this.ctx;
+    const pts = t.automation?.[def.id] ?? [];
+    const cur = this.drag?.kind === 'auto' ? this.drag.point : undefined;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(GUTTER, top, W - GUTTER, this.laneH);
+    ctx.clip();
+    // Mid line (pan centre / halfway) for orientation.
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(GUTTER, Math.round(top + this.laneH / 2), W - GUTTER, 1);
+    ctx.strokeStyle = t.color;
+    ctx.lineWidth = 1.5;
+    if (!pts.length) {
+      // No points: the track's fixed value, dashed, and how to start.
+      ctx.setLineDash([4, 4]);
+      ctx.globalAlpha = 0.6;
+      const y = this.laneY(def, def.base(t));
+      ctx.beginPath();
+      ctx.moveTo(GUTTER, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#626985';
+      ctx.fillText('Click to add points · drag to move · right-click to delete', GUTTER + 10, top + this.laneH - 12);
+      ctx.restore();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(GUTTER, this.laneY(def, pts[0].value));
+    for (const p of pts) ctx.lineTo(this.tickToX(p.tick), this.laneY(def, p.value));
+    ctx.lineTo(W, this.laneY(def, pts[pts.length - 1].value));
+    ctx.stroke();
+    ctx.globalAlpha = 0.12;
+    ctx.lineTo(W, top + this.laneH);
+    ctx.lineTo(GUTTER, top + this.laneH);
+    ctx.closePath();
+    ctx.fillStyle = t.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    for (const p of pts) {
+      const x = this.tickToX(p.tick);
+      if (x < GUTTER - 6 || x > W + 6) continue;
+      const y = this.laneY(def, p.value);
+      ctx.fillStyle = p === cur ? '#ffffff' : t.color;
+      ctx.beginPath();
+      ctx.arc(x, y, p === cur ? 4.5 : 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      if (p === cur) {
+        ctx.fillStyle = '#e9ecf6';
+        ctx.fillText(def.fmt(p.value), Math.min(W - 60, x + 8), Math.max(top + 10, y - 8));
+      }
+    }
+    ctx.restore();
   }
 }
 

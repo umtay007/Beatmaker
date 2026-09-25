@@ -1,5 +1,6 @@
+import { AUTO_PARAMS } from './automation';
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type SamplerSettings, type Song, type Track } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type Song, type Track } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -20,6 +21,8 @@ export interface UIState {
   inspectorTab: 'beat' | 'visual' | 'export';
   /** Last used note length for new melodic notes (ticks). */
   noteLength: number;
+  /** What the editor's bottom lane shows: note velocities or an automation lane. */
+  lane: 'velocity' | AutoParam;
 }
 
 const SONG_KEY = 'beatmaker.song.v1';
@@ -55,6 +58,7 @@ export class Store {
     maximized: false,
     inspectorTab: 'beat',
     noteLength: STEP * 2,
+    lane: 'velocity',
   };
   /** Increments on every song change; used by caches. */
   songVersion = 0;
@@ -204,6 +208,7 @@ export class Store {
       try {
         const parsed = JSON.parse(u) as Partial<UIState>;
         this.ui = { ...this.ui, ...parsed, maximized: false, record: false };
+        if (this.ui.lane !== 'velocity' && !AUTO_PARAMS.some((p) => p.id === this.ui.lane)) this.ui.lane = 'velocity';
       } catch {
         /* ignore */
       }
@@ -239,6 +244,24 @@ export class Store {
 /** A finite number within [lo, hi], or the fallback for anything else (missing, NaN, a string…). */
 function num(v: unknown, fallback: number, lo = -Infinity, hi = Infinity): number {
   return typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+}
+
+/** Keep known lanes with finite, in-range points, sorted and one per tick. */
+function normalizeAutomation(v: unknown): Track['automation'] {
+  if (!v || typeof v !== 'object') return undefined;
+  const out: NonNullable<Track['automation']> = {};
+  for (const def of AUTO_PARAMS) {
+    const pts = (v as Record<string, unknown>)[def.id];
+    if (!Array.isArray(pts)) continue;
+    const byTick = new Map<number, number>();
+    for (const p of pts) {
+      if (!p || !Number.isFinite(p.tick) || !Number.isFinite(p.value)) continue;
+      byTick.set(Math.max(0, Math.round(p.tick)), Math.max(def.min, Math.min(def.max, p.value)));
+    }
+    const list = [...byTick].sort((a, b) => a[0] - b[0]).map(([tick, value]) => ({ tick, value }));
+    if (list.length) out[def.id] = list;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function normalizeSampler(v: Partial<SamplerSettings> | undefined): SamplerSettings | undefined {
@@ -306,6 +329,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         lpf: num(t.lpf, LPF_OFF, 100, LPF_OFF),
         res: num(t.res, 0, 0, 1),
         sampler: normalizeSampler(t.sampler),
+        automation: normalizeAutomation(t.automation),
         mute: !!t.mute,
         solo: !!t.solo,
         visible: t.visible ?? true,

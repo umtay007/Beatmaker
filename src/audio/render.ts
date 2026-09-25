@@ -27,7 +27,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const frames = Math.ceil(length * sr);
   const ctx = new OfflineAudioContext(2, frames + lat, sr);
   const graph = new Graph(ctx, { dynamics });
-  graph.applyMix(song, false);
+  graph.applyMix(song, false, tl.secToTick(opts.from));
   graph.out.connect(ctx.destination);
   await Promise.all([ensureSongSamples(song.tracks), ensureSamplerFiles(song.tracks)]);
   const kits: KitBuffers = new Map();
@@ -39,6 +39,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
     if (ev.t < opts.from || ev.t >= opts.to) continue;
     sched.play(ev.track, ev.note.pitch, ev.note.vel, ev.t - opts.from, Math.max(0.02, ev.end - ev.t), ev.glideFrom);
   }
+  for (const t of song.tracks) if (t.automation) graph.automate(t, song, tl, opts.from, opts.from + length, (sec) => sec - opts.from, true);
   if (opts.backing) {
     graph.synthBus.gain.value = song.synthsWithAudio ? 1 : 0;
     graph.backing.gain.value = opts.backingVolume ?? 1;

@@ -1,3 +1,4 @@
+import { AUTO_PARAMS, lanes, valueAt, type AutoParamDef } from '../core/automation';
 import { Timeline } from '../core/timing';
 import { DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
 import { EQ_BANDS } from './analyze';
@@ -21,6 +22,8 @@ export interface TrackBus {
   duckDb: number;
   duckRelease: number;
 }
+
+const AUTO_DEF = Object.fromEntries(AUTO_PARAMS.map((d) => [d.id, d])) as Record<AutoParamDef['id'], AutoParamDef>;
 
 /** GM kick drums: they trigger sidechain ducking. */
 const KICKS = new Set([35, 36]);
@@ -225,8 +228,12 @@ export class Graph {
     return b;
   }
 
-  /** Apply volume / pan / sends / mute / solo for all tracks, plus the song's tuning and echo time. */
-  applyMix(song: Song, smooth = true): void {
+  /**
+   * Apply volume / pan / sends / mute / solo for all tracks, plus the song's tuning and echo time.
+   * Automated settings: `autoTick` null (playing) leaves them to the automation scheduler; a tick
+   * sets them to their automated value there.
+   */
+  applyMix(song: Song, smooth = true, autoTick: number | null = 0): void {
     const anySolo = song.tracks.some((t) => t.solo);
     const now = this.ctx.currentTime;
     this.tuning = (song.tuning ?? 0) / 100;
@@ -257,16 +264,36 @@ export class Graph {
     for (const t of song.tracks) {
       const b = this.bus(t);
       const audible = !t.mute && (!anySolo || t.solo);
-      set(b.vol.gain, audible ? t.volume : 0);
-      set(b.pan.pan, t.pan);
-      set(b.send.gain, t.reverb);
-      set(b.echo.gain, t.echo ?? 0);
-      const hpf = t.hpf ?? HPF_OFF;
-      const lpf = t.lpf ?? LPF_OFF;
-      if (hpf <= HPF_OFF) snap(b.hp.frequency, 0);
-      else set(b.hp.frequency, hpf);
-      if (lpf >= LPF_OFF) snap(b.lp.frequency, nyquist);
-      else set(b.lp.frequency, Math.min(lpf, nyquist));
+      const auto = t.automation;
+      /** The setting's value now: its automation at `autoTick`, else the track's own. */
+      const val = (id: keyof NonNullable<Track['automation']>, own: number): number | null => {
+        const pts = auto?.[id];
+        if (!pts?.length) return own;
+        if (autoTick === null) return null;
+        return valueAt(AUTO_DEF[id], pts, autoTick);
+      };
+      // Automated params may have ramps queued ahead: clear them when setting a fixed value.
+      const put = (p: AudioParam, v: number | null, automated: boolean) => {
+        if (v === null) return;
+        if (automated && smooth) p.cancelScheduledValues(now);
+        set(p, v);
+      };
+      const vol = val('volume', t.volume);
+      if (!audible) put(b.vol.gain, 0, true);
+      else put(b.vol.gain, vol, !!auto?.volume?.length);
+      put(b.pan.pan, val('pan', t.pan), !!auto?.pan?.length);
+      put(b.send.gain, val('reverb', t.reverb), !!auto?.reverb?.length);
+      put(b.echo.gain, val('echo', t.echo ?? 0), !!auto?.echo?.length);
+      const hpf = val('hpf', t.hpf ?? HPF_OFF);
+      const lpf = val('lpf', t.lpf ?? LPF_OFF);
+      if (hpf !== null) {
+        if (hpf <= HPF_OFF && !auto?.hpf?.length) snap(b.hp.frequency, 0);
+        else put(b.hp.frequency, hpf, !!auto?.hpf?.length);
+      }
+      if (lpf !== null) {
+        if (lpf >= LPF_OFF && !auto?.lpf?.length) snap(b.lp.frequency, nyquist);
+        else put(b.lp.frequency, Math.min(lpf, nyquist), !!auto?.lpf?.length);
+      }
       set(b.lp.Q, -3 + (t.res ?? 0) * 19);
       set(b.low.gain, t.eqLow ?? 0);
       set(b.mid.gain, t.eqMid ?? 0);
@@ -302,6 +329,51 @@ export class Graph {
       for (let k = 0; k < STEPS; k++) {
         g.setTargetAtTime(Math.pow(10, (-depth * (1 - (k + 1) / STEPS)) / 20), hold + (k * rel) / STEPS, rel / STEPS / 2.5);
       }
+    }
+  }
+
+  /**
+   * Schedule a track's automation for song time [from, to] (seconds), mapped to context time by
+   * `ctxOf`. `first`: this starts a new playback segment, so jump to the value at `from`. Each call
+   * ramps through the breakpoints inside the range and on to the value at `to`, so a lane plays as
+   * one continuous curve however the scheduler slices time.
+   */
+  automate(track: Track, song: Song, tl: Timeline, from: number, to: number, ctxOf: (sec: number) => number, first: boolean): void {
+    const b = this.bus(track);
+    const audible = !track.mute && (!song.tracks.some((t) => t.solo) || track.solo);
+    const nyquist = this.ctx.sampleRate / 2;
+    const t0 = tl.secToTick(from);
+    const t1 = tl.secToTick(to);
+    for (const [def, pts] of lanes(track)) {
+      const p = this.autoParam(b, def.id);
+      const map = (v: number) => (def.id === 'volume' ? (audible ? v : 0) : def.id === 'lpf' ? Math.min(v, nyquist) : v);
+      const ramp = (v: number, at: number) => {
+        if (def.log) p.exponentialRampToValueAtTime(Math.max(1, map(v)), at);
+        else p.linearRampToValueAtTime(map(v), at);
+      };
+      if (first) {
+        p.cancelScheduledValues(ctxOf(from));
+        p.setValueAtTime(map(valueAt(def, pts, t0)), ctxOf(from));
+      }
+      for (const pt of pts) if (pt.tick > t0 && pt.tick <= t1) ramp(pt.value, ctxOf(tl.rawTickToSec(pt.tick)));
+      ramp(valueAt(def, pts, t1), ctxOf(to));
+    }
+  }
+
+  private autoParam(b: TrackBus, id: AutoParamDef['id']): AudioParam {
+    switch (id) {
+      case 'volume':
+        return b.vol.gain;
+      case 'pan':
+        return b.pan.pan;
+      case 'lpf':
+        return b.lp.frequency;
+      case 'hpf':
+        return b.hp.frequency;
+      case 'reverb':
+        return b.send.gain;
+      case 'echo':
+        return b.echo.gain;
     }
   }
 

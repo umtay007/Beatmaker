@@ -51,11 +51,21 @@ export interface Track {
   res?: number;
   /** The sound and settings of a sampler track (instrument 'sampler'). */
   sampler?: SamplerSettings;
+  /** Automation lanes: breakpoints that move a setting over time (they override its fixed value). */
+  automation?: Partial<Record<AutoParam, AutoPoint[]>>;
   mute: boolean;
   solo: boolean;
   /** Whether the track is drawn by the visualizer. */
   visible: boolean;
   notes: Note[];
+}
+
+/** Track settings that can be automated. */
+export type AutoParam = 'volume' | 'pan' | 'lpf' | 'hpf' | 'reverb' | 'echo';
+
+export interface AutoPoint {
+  tick: number;
+  value: number;
 }
 
 export type SamplerMode = 'pitch' | 'slice' | 'loop';

@@ -39,6 +39,10 @@ result as an MP4 or WebM video.
   bongo, woodblock, triangle, shaker, cowbell, toms, crash and ride.
 - **Recorded drum machines**: a real **TR-808** (plus a long-kick variant for trap), **TR-909** and
   **TR-707**, streamed on demand. Voices a machine never had fall back to synthesized ones.
+- **Automation**: the lane under the editor switches (click its name) from note velocities to a
+  curve for the track's volume, pan, high cut, low cut, reverb or echo. Click to add points, drag
+  them, right-click to delete; values move in straight lines between points (filters on a log
+  scale). It plays live, in WAV/stem/video exports, and survives loops and seeks.
 - A **sampler** for your own sounds (Instrument → Sampler…): play a one-shot or vocal chop across
   the keyboard, **chop** a phrase or loop at its hits (one chop per key from C3, each cutting off
   the last, and a button that writes the chops back into the track), or play a **loop** stretched to
