@@ -34,6 +34,9 @@ export interface GenerateChoice {
   bpm: number | null;
 }
 
+/** A track name as a file name inside a ZIP. */
+const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Track';
+
 /** Say an export finished, and whether synth stand-ins replaced recordings that didn't download. */
 function exportedToast(msg: string, missing: string[]): void {
   if (missing.length) toast(`${msg}, with synth stand-ins for ${missing.join(', ')}`, 'error', 8000);
@@ -309,6 +312,21 @@ export class Actions {
     void downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), `${safeName(this.store.song.name)}.mid`).then((ok) => ok && toast('MIDI exported', 'ok'));
   }
 
+  /** A .mid file for every track with notes (each keeps the song's tempo, key and markers), plus the whole song, in a ZIP. */
+  async exportMidiTracks(): Promise<void> {
+    const song = this.store.song;
+    const tracks = song.tracks.filter((t) => t.notes.length);
+    if (!tracks.length) {
+      toast('No tracks with notes to export', 'error');
+      return;
+    }
+    const midi = (bytes: Uint8Array) => new Blob([bytes as BlobPart], { type: 'audio/midi' });
+    const files = [{ name: '00 Full song.mid', data: midi(songToMidi(song)) }];
+    tracks.forEach((t, i) => files.push({ name: `${String(i + 1).padStart(2, '0')} ${fileName(t.name)}.mid`, data: midi(songToMidi({ ...song, tracks: [t] })) }));
+    const zip = await zipFiles(files);
+    if (await downloadBlob(zip, `${safeName(song.name)}-midi.zip`)) toast(`Exported ${tracks.length} MIDI tracks + the full song`, 'ok', 4000);
+  }
+
   async exportWav(): Promise<void> {
     const song = cloneSong(this.store.song);
     const tl = this.engine.timeline;
@@ -356,7 +374,6 @@ export class Actions {
     const status = h('p', null, 'Rendering the full mix…');
     const cancel = h('button', { class: 'btn btn-block', onclick: () => (cancelled = true) }, 'Cancel');
     const m = modal('Export stems', h('div', null, status, h('div', { class: 'progress' }, bar), cancel), { closable: false });
-    const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Track';
     try {
       const files: { name: string; data: Blob }[] = [];
       const missing = await this.checkSamples(song.tracks);

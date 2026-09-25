@@ -138,6 +138,7 @@ export class TopBar {
       { label: 'Export WAV', icon: 'wave', action: () => a.exportWav() },
       { label: 'Export stems', icon: 'wave', hint: 'a WAV per track', action: () => a.exportStems() },
       { label: 'Export MIDI', icon: 'music', action: () => a.exportMidi() },
+      { label: 'Export MIDI per track', icon: 'music', hint: 'a .mid per track', action: () => void a.exportMidiTracks() },
     ]);
   }
 }
