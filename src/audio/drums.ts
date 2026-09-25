@@ -12,9 +12,11 @@ interface TomP { kind: 'tom'; f0: number; f1: number; decay: number; noise?: num
 interface RimP { kind: 'rim'; freq: number; decay: number; q?: number; sub?: number }
 interface ShakerP { kind: 'shaker'; decay: number; bp: number; attack?: number }
 interface BellP { kind: 'cowbell'; f1: number; f2: number; decay: number }
+/** Ringing metal (triangle, bells): inharmonic sine partials. */
+interface MetalP { kind: 'metal'; freq: number; decay: number }
 
 /** `level` scales a voice after peak normalization, to balance quiet voices inside a kit. */
-export type DrumP = (KickP | SnareP | ClapP | HatP | CymbalP | TomP | RimP | ShakerP | BellP) & { level?: number };
+export type DrumP = (KickP | SnareP | ClapP | HatP | CymbalP | TomP | RimP | ShakerP | BellP | MetalP) & { level?: number };
 
 export interface KitDef {
   id: string;
@@ -37,6 +39,13 @@ const base: Record<number, DrumP> = {
   70: { kind: 'shaker', decay: 0.07, bp: 7000, attack: 0.012 },
   56: { kind: 'cowbell', f1: 540, f2: 800, decay: 0.3 },
   63: { kind: 'tom', f0: 360, f1: 280, decay: 0.18, noise: 0.25 },
+  // Hand percussion
+  31: { kind: 'clap', freq: 2600, decay: 0.07, spread: 0.0015, q: 1.1 },
+  54: { kind: 'hat', decay: 0.22, hp: 5500, bp: 8500, noiseMix: 0.9 },
+  60: { kind: 'tom', f0: 430, f1: 390, decay: 0.13, noise: 0.25 },
+  64: { kind: 'tom', f0: 215, f1: 195, decay: 0.28, noise: 0.18 },
+  76: { kind: 'rim', freq: 1150, decay: 0.07, q: 3, sub: 0.25, level: 0.6 },
+  81: { kind: 'metal', freq: 3700, decay: 1.4, level: 0.45 },
   45: { kind: 'tom', f0: 110, f1: 72, decay: 0.42, noise: 0.15 },
   47: { kind: 'tom', f0: 150, f1: 105, decay: 0.36, noise: 0.15 },
   50: { kind: 'tom', f0: 210, f1: 150, decay: 0.3, noise: 0.15 },
@@ -120,6 +129,35 @@ export const KITS: KitDef[] = [
     { gain: 0.95 },
   ),
 ];
+
+KITS.push(
+  kit('acoustic', 'Acoustic Kit', {
+    // A real kit: a boomy kick with a beater click, a snare with body and wires, bright hats.
+    36: { f0: 95, f1: 52, pitchDecay: 0.06, decay: 0.5, click: 1.2, drive: 1.1 },
+    38: { tone: 200, toneDecay: 0.14, noise: 1.2, noiseDecay: 0.28, hp: 900, lp: 12000, body: 0.9 },
+    39: { freq: 1400, decay: 0.3, spread: 0.012 },
+    42: { decay: 0.07, hp: 6000, bp: 9500, noiseMix: 0.7 },
+    46: { decay: 0.6, hp: 5500, bp: 9000, noiseMix: 0.7 },
+    49: { decay: 2.4, hp: 3500, noiseMix: 0.6 },
+    51: { decay: 1.9, hp: 5500, bell: 0.4, noiseMix: 0.35 },
+    45: { f0: 95, f1: 80, decay: 0.6, noise: 0.25 },
+    47: { f0: 140, f1: 120, decay: 0.5, noise: 0.25 },
+    50: { f0: 190, f1: 165, decay: 0.45, noise: 0.25 },
+  }),
+  kit('afro', 'Afro Percussion', {
+    // Afrobeats / amapiano: round kick, rimshot snare, log-drum toms, shakers, congas and bongos.
+    36: { f0: 120, f1: 45, pitchDecay: 0.05, decay: 0.45, click: 0.5, drive: 1.4 },
+    38: { tone: 330, toneDecay: 0.06, noise: 0.8, noiseDecay: 0.12, hp: 1500, lp: 11000, body: 0.8 },
+    37: { freq: 1700, decay: 0.06, q: 3, sub: 0.6 },
+    70: { decay: 0.1, bp: 6500, attack: 0.02 },
+    45: { f0: 100, f1: 85, decay: 0.5, noise: 0.05 },
+    47: { f0: 150, f1: 130, decay: 0.45, noise: 0.05 },
+    50: { f0: 210, f1: 185, decay: 0.4, noise: 0.05 },
+    60: { f0: 470, f1: 430, decay: 0.12, noise: 0.3 },
+    64: { f0: 240, f1: 215, decay: 0.3, noise: 0.2 },
+    63: { f0: 330, f1: 300, decay: 0.2, noise: 0.25 },
+  }),
+);
 
 export const KIT_BY_ID = new Map(KITS.map((k) => [k.id, k]));
 
@@ -383,6 +421,18 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       n.stop(t + p.decay + 0.1);
       break;
     }
+    case 'metal': {
+      for (const [ratio, lvl] of [[1, 0.5], [2.76, 0.3], [5.4, 0.18], [8.93, 0.1]] as const) {
+        const o = ctx.createOscillator();
+        o.frequency.value = p.freq * ratio;
+        const g = ctx.createGain();
+        decayEnv(g.gain, t, lvl, p.decay / Math.sqrt(ratio), 0.001);
+        o.connect(g).connect(out);
+        o.start(t);
+        o.stop(t + p.decay + 0.05);
+      }
+      break;
+    }
     case 'cowbell': {
       const bus = ctx.createGain();
       for (const f of [p.f1, p.f2]) {
@@ -415,6 +465,7 @@ function voiceLength(p: DrumP): number {
     case 'rim':
     case 'shaker':
     case 'cowbell':
+    case 'metal':
     case 'hat':
     case 'cymbal':
       return p.decay + 0.08;

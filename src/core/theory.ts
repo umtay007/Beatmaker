@@ -144,7 +144,13 @@ export const DRUM_VOICES: DrumVoice[] = [
   { pitch: 46, name: 'Open Hat', short: 'OH', key: 'i' },
   { pitch: 37, name: 'Rim', short: 'RM', key: 'g' },
   { pitch: 70, name: 'Shaker', short: 'SH', key: 'y' },
-  { pitch: 63, name: 'Perc', short: 'PC', key: 'r' },
+  { pitch: 63, name: 'Conga', short: 'CG', key: 'r' },
+  { pitch: 64, name: 'Low Conga', short: 'LC', key: 'e' },
+  { pitch: 60, name: 'Bongo', short: 'BG', key: 'w' },
+  { pitch: 31, name: 'Snap', short: 'SN', key: 'a' },
+  { pitch: 54, name: 'Tambourine', short: 'TB', key: 'v' },
+  { pitch: 76, name: 'Woodblock', short: 'WB', key: 'b' },
+  { pitch: 81, name: 'Triangle', short: 'TR', key: 'n' },
   { pitch: 56, name: 'Cowbell', short: 'CB', key: 't' },
   { pitch: 45, name: 'Low Tom', short: 'LT', key: 'h' },
   { pitch: 47, name: 'Mid Tom', short: 'MT', key: 'j' },
@@ -159,10 +165,10 @@ export const DRUM_BY_PITCH = new Map(DRUM_VOICES.map((v) => [v.pitch, v]));
 export function normalizeDrumPitch(p: number): number {
   if (DRUM_BY_PITCH.has(p)) return p;
   const map: Record<number, number> = {
-    27: 37, 28: 38, 31: 37, 33: 37, 34: 56, 35: 36, 40: 38, 41: 45, 43: 45, 44: 42, 48: 50, 52: 49,
-    53: 51, 54: 70, 55: 49, 57: 49, 58: 63, 59: 51, 60: 63, 61: 63, 62: 63, 64: 63, 65: 50, 66: 47,
-    67: 56, 68: 56, 69: 70, 71: 63, 72: 63, 73: 70, 74: 70, 75: 37, 76: 63, 77: 63, 78: 63, 79: 63,
-    80: 56, 81: 56, 82: 70, 86: 36, 87: 36,
+    27: 37, 28: 38, 33: 37, 34: 56, 35: 36, 40: 38, 41: 45, 43: 45, 44: 42, 48: 50, 52: 49,
+    53: 51, 55: 49, 57: 49, 58: 63, 59: 51, 61: 60, 62: 63, 65: 50, 66: 47,
+    67: 56, 68: 56, 69: 70, 71: 63, 72: 63, 73: 70, 74: 70, 75: 37, 77: 76, 78: 63, 79: 63,
+    80: 81, 82: 70, 83: 54, 84: 81, 86: 36, 87: 36,
   };
   if (map[p]) return map[p];
   if (p < 36) return 36;
