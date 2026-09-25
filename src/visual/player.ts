@@ -28,6 +28,10 @@ export class VisualPlayer {
     this.post.canvas.setAttribute('role', 'img');
     host.append(this.frame);
     new ResizeObserver(() => this.fit()).observe(host);
+    // Full screen changes the frame's size but not the stage's; moving the window to a screen with
+    // a different pixel density changes neither. Re-fit on both.
+    document.addEventListener('fullscreenchange', () => this.fit());
+    window.addEventListener('resize', () => this.fit());
     store.on('visual', () => {
       this.fit();
       this.loadFonts();
@@ -47,12 +51,13 @@ export class VisualPlayer {
   /** Fit the preview frame into the stage, keeping the output aspect ratio. */
   fit(): void {
     const v = this.store.visual;
+    const full = document.fullscreenElement === this.frame;
     const r = this.host.getBoundingClientRect();
     const style = getComputedStyle(this.host);
     const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
     const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-    const aw = Math.max(50, r.width - padX);
-    const ah = Math.max(50, r.height - padY);
+    const aw = Math.max(50, full ? window.innerWidth : r.width - padX);
+    const ah = Math.max(50, full ? window.innerHeight : r.height - padY);
     const [a, b] = v.aspect.split(':').map(Number);
     let w = aw;
     let hgt = (aw * b) / a;
@@ -63,10 +68,10 @@ export class VisualPlayer {
     this.frame.style.width = `${Math.floor(w)}px`;
     this.frame.style.height = `${Math.floor(hgt)}px`;
     if (!this.exportState) {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, full ? 2 : 1.5);
       let pw = Math.round(w * dpr);
       let ph = Math.round(hgt * dpr);
-      const max = 1600;
+      const max = full ? 2560 : 1600;
       if (Math.max(pw, ph) > max) {
         const s = max / Math.max(pw, ph);
         pw = Math.round(pw * s);

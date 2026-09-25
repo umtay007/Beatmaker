@@ -246,6 +246,8 @@ function float(anchor: HTMLElement, menu: HTMLElement): void {
 // ---------------------------------------------------------------------------------------------
 // Modal
 
+const modalStack: HTMLElement[] = [];
+
 export function modal(title: string, body: HTMLElement, opts: { onClose?: () => void; wide?: boolean; closable?: boolean } = {}): { el: HTMLElement; close: () => void } {
   const closable = opts.closable ?? true;
   let closed = false;
@@ -253,8 +255,18 @@ export function modal(title: string, body: HTMLElement, opts: { onClose?: () => 
     if (closed) return;
     closed = true;
     back.remove();
+    modalStack.splice(modalStack.indexOf(back), 1);
+    window.removeEventListener('keydown', onKey, true);
     opts.onClose?.();
   };
+  // Escape closes the top-most closable dialog.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && closable && modalStack[modalStack.length - 1] === back) {
+      e.stopPropagation();
+      close();
+    }
+  };
+  window.addEventListener('keydown', onKey, true);
   const back = h(
     'div',
     {
@@ -271,5 +283,6 @@ export function modal(title: string, body: HTMLElement, opts: { onClose?: () => 
     ),
   );
   document.body.append(back);
+  modalStack.push(back);
   return { el: back, close };
 }

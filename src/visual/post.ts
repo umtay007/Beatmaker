@@ -121,6 +121,8 @@ export class Post {
   private tw = 0;
   private th = 0;
   private time = 0;
+  /** The GPU dropped the context (driver reset, too many tabs…); wait for it to come back. */
+  private lost = false;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -133,9 +135,32 @@ export class Post {
       }) as WebGLRenderingContext | null;
       if (this.gl) this.init(this.gl);
     } catch {
+      // A canvas that already has a WebGL context can't give a 2D one: start over on a fresh canvas.
       this.gl = null;
+      this.canvas = document.createElement('canvas');
     }
-    if (!this.gl) this.ctx2d = this.canvas.getContext('2d');
+    if (!this.gl) {
+      this.ctx2d = this.canvas.getContext('2d');
+      return;
+    }
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); // allows the browser to restore it
+      this.lost = true;
+    });
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      const gl = this.gl;
+      if (!gl) return;
+      this.progs = {};
+      this.targets = [];
+      this.tw = 0;
+      this.th = 0;
+      try {
+        this.init(gl);
+        this.lost = false;
+      } catch {
+        /* stay paused on the last frame */
+      }
+    });
   }
 
   get webgl(): boolean {
@@ -234,9 +259,11 @@ export class Post {
   render(scene: HTMLCanvasElement, v: VisualSettings, dt: number): void {
     this.time += dt;
     if (!this.gl) {
+      if (this.canvas.width !== scene.width || this.canvas.height !== scene.height) this.setSize(scene.width, scene.height);
       this.ctx2d?.drawImage(scene, 0, 0, this.canvas.width, this.canvas.height);
       return;
     }
+    if (this.lost || this.gl.isContextLost()) return;
     const gl = this.gl;
     if (this.canvas.width !== scene.width || this.canvas.height !== scene.height || !this.targets.length) this.setSize(scene.width, scene.height);
     gl.activeTexture(gl.TEXTURE0);

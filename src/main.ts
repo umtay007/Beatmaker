@@ -5,7 +5,7 @@ import { store } from './core/store';
 import { PALETTES } from './visual/settings';
 import { VisualPlayer } from './visual/player';
 import { Actions } from './ui/actions';
-import { h, icon } from './ui/dom';
+import { h, icon, toast } from './ui/dom';
 import { Editor } from './ui/editor';
 import { EditorBar } from './ui/editorbar';
 import { Inspector } from './ui/inspector';
@@ -119,6 +119,7 @@ syncStage();
     const cur = bottom.getBoundingClientRect().height;
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
+      e.stopPropagation(); // don't also transpose the selected notes
       const hgt = Math.max(160, Math.min(window.innerHeight - 220, cur + (e.key === 'ArrowUp' ? 30 : -30)));
       document.documentElement.style.setProperty('--bottom-h', `${hgt}px`);
     }
@@ -158,6 +159,10 @@ function localStorageSet(k: string, v: string): void {
     e.preventDefault();
     depth = 0;
     document.body.classList.remove('dragging');
+    if (actions.exporting) {
+      toast('Wait for the video export to finish before opening files', 'error');
+      return;
+    }
     const files = [...(e.dataTransfer?.files ?? [])];
     // MIDI first so a dropped MIDI + audio pair lines up.
     files.sort((a, b) => Number(/\.midi?$/i.test(b.name)) - Number(/\.midi?$/i.test(a.name)));
@@ -177,6 +182,16 @@ window.addEventListener('pointerdown', unlock, true);
 window.addEventListener('keydown', unlock, true);
 
 installKeyboard(store, engine, editor, actions, toggleMax);
+
+// Slider edits are undo gestures that start on pointerdown in each control. A click that doesn't
+// move a slider fires no 'change', so always close the gesture when the pointer is released
+// (bubble phase: after the editor's own pointerup work). Keyboard changes get a gesture per key.
+const endGesture = () => store.endGesture();
+window.addEventListener('pointerup', endGesture);
+window.addEventListener('pointercancel', endGesture);
+const onRange = (e: Event) => (e.target as Element | null)?.matches?.('input[type=range]') ?? false;
+window.addEventListener('keydown', (e) => onRange(e) && store.beginGesture(), true);
+window.addEventListener('keyup', (e) => onRange(e) && store.endGesture());
 window.addEventListener('beforeunload', () => store.saveNow());
 
 // ---------------------------------------------------------------------------------------------

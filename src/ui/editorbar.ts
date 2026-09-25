@@ -1,7 +1,7 @@
 import type { AudioEngine } from '../audio/engine';
 import { GENRES, regeneratePart } from '../beats/generator';
 import type { Store } from '../core/store';
-import { PPQ, STEP } from '../core/types';
+import { PPQ, STEP, type Track } from '../core/types';
 import type { Actions } from './actions';
 import { h, icon, showMenu, showPopover } from './dom';
 import type { Editor } from './editor';
@@ -75,6 +75,8 @@ export class EditorBar {
         const t = store.track;
         if (!t || key !== 'pan') return;
         store.update(() => (t.pan = 0));
+        r.value = '0'; // sync() skips the focused slider
+        this.paintMini();
       });
       return r;
     };
@@ -181,11 +183,18 @@ export class EditorBar {
     this.keys.classList.toggle('on', ui.keys);
   }
 
+  /** Undo/redo swaps in new track objects, so menus resolve their track by id when they act. */
+  private trackById(id: string): Track | undefined {
+    return this.store.song.tracks.find((x) => x.id === id);
+  }
+
   /** Echo send and fine tune for the selected track. */
   private fxPopover(anchor: HTMLElement): void {
     const store = this.store;
-    const t = store.track;
-    if (!t) return;
+    const first = store.track;
+    if (!first) return;
+    const id = first.id;
+    const t = () => this.trackById(id) ?? first;
     const row = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt: (v: number) => string, reset = 0) => {
       const out = h('output', null, fmt(get()));
       const r = h('input', { type: 'range', class: 'range', min, max, step, value: get(), 'aria-label': label }) as HTMLInputElement;
@@ -197,12 +206,15 @@ export class EditorBar {
         store.touch();
         out.textContent = fmt(Number(r.value));
         paint();
-        this.fx.classList.toggle('on', (t.echo ?? 0) > 0 || (t.kind === 'synth' && (t.tune ?? 0) !== 0));
+        const cur = t();
+        this.fx.classList.toggle('on', (cur.echo ?? 0) > 0 || (cur.kind === 'synth' && (cur.tune ?? 0) !== 0));
       });
       r.addEventListener('change', () => store.endGesture());
       r.addEventListener('dblclick', () => {
+        store.update(() => set(reset));
         r.value = String(reset);
-        r.dispatchEvent(new Event('input'));
+        out.textContent = fmt(reset);
+        paint();
       });
       return h('label', { class: 'pop-row' }, label, r, out);
     };
@@ -212,10 +224,10 @@ export class EditorBar {
       h(
         'div',
         null,
-        h('div', { class: 'pop-title' }, `${t.name} · FX`),
-        row('Echo send', 0, 1, 0.01, () => t.echo ?? 0, (v) => (t.echo = v), pct),
-        t.kind === 'synth'
-          ? row('Fine tune', -100, 100, 1, () => t.tune ?? 0, (v) => (t.tune = v), (v) => `${v > 0 ? '+' : ''}${v} ct`)
+        h('div', { class: 'pop-title' }, `${first.name} · FX`),
+        row('Echo send', 0, 1, 0.01, () => t().echo ?? 0, (v) => (t().echo = v), pct),
+        first.kind === 'synth'
+          ? row('Fine tune', -100, 100, 1, () => t().tune ?? 0, (v) => (t().tune = v), (v) => `${v > 0 ? '+' : ''}${v} ct`)
           : null,
         h('p', { class: 'pop-note' }, 'The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
       ),
@@ -235,7 +247,10 @@ export class EditorBar {
       { label: 'Transpose −1 octave', action: () => { e.selectAll(); e.transpose(-12); } },
       '-',
       { label: 'Double song length', icon: 'duplicate', action: () => this.actions.doubleLength() },
-      { label: 'Clear this track', icon: 'broom', danger: true, action: () => t && this.store.update(() => (t.notes = [])) },
+      { label: 'Clear this track', icon: 'broom', danger: true, action: () => {
+        const cur = t && this.trackById(t.id);
+        if (cur) this.store.update(() => (cur.notes = []));
+      } },
     ]);
   }
 
@@ -247,9 +262,11 @@ export class EditorBar {
       GENRES.map((g) => ({
         label: `${g.label} style`,
         action: () => {
+          const cur = this.trackById(t.id);
+          if (!cur) return;
           this.actions.lastGenre = g.id;
-          const notes = regeneratePart(this.store.song, t, g.id);
-          this.store.update(() => (t.notes = notes));
+          const notes = regeneratePart(this.store.song, cur, g.id);
+          this.store.update(() => (cur.notes = notes));
           this.editor.selection.clear();
         },
       })),

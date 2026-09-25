@@ -18,6 +18,26 @@ function isTyping(e: KeyboardEvent): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
+/**
+ * Whether focus last moved by keyboard (Tab). After a mouse click a button keeps focus, but Space
+ * should still play and pause rather than click it again.
+ */
+let focusByKeyboard = false;
+window.addEventListener('pointerdown', () => (focusByKeyboard = false), true);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') focusByKeyboard = true;
+}, true);
+
+/**
+ * Space, Enter and the arrow keys belong to a control the user reached with Tab: buttons, menu
+ * items, track rows, the panel resizer.
+ */
+function keyboardOnControl(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  if (!focusByKeyboard || !t || !t.closest) return false;
+  return !!t.closest('button, a[href], summary, [role=option], [role=separator], [role=menuitem], [role=button]');
+}
+
 export function installKeyboard(store: Store, engine: AudioEngine, editor: Editor, actions: Actions, toggleMax: () => void): void {
   const held = new Map<string, { voice: Voice | null; pitch: number; start: number | null; trackId: string }>();
   let octave = 0;
@@ -42,6 +62,10 @@ export function installKeyboard(store: Store, engine: AudioEngine, editor: Edito
 
   window.addEventListener('keydown', (e) => {
     if (isTyping(e)) return;
+    // A modal is open, or a video is recording: shortcuts would change the song or the transport
+    // underneath it (and a paused export would never finish).
+    if (actions.exporting || document.querySelector('.modal-back')) return;
+    if ([' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && keyboardOnControl(e)) return;
     const key = e.key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
 

@@ -53,6 +53,7 @@ export class Editor {
     this.ctx = this.canvas.getContext('2d')!;
     this.wrap.append(this.canvas);
     new ResizeObserver(() => this.resize()).observe(this.wrap);
+    window.addEventListener('resize', () => this.resize()); // also catches pixel-density changes
     this.bind();
     store.on('song', () => this.invalidate());
     store.on('ui', () => {

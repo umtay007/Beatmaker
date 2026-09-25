@@ -82,7 +82,7 @@ export class TracksPanel {
       const m = h('button', { class: 'toggle-chip m', title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: (e: Event) => this.flip(e, t.id, 'mute') }, 'M');
       const s = h('button', { class: 'toggle-chip s', title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: (e: Event) => this.flip(e, t.id, 'solo') }, 'S');
       const eye = h('button', { class: 'icon-btn sm', 'aria-label': `Toggle ${t.name} in video`, onclick: (e: Event) => this.flip(e, t.id, 'visible') }) as HTMLButtonElement;
-      const more = h('button', { class: 'icon-btn sm', 'aria-label': `${t.name} options`, onclick: (e: MouseEvent) => this.trackMenu(e, t) }, icon('more', 15));
+      const more = h('button', { class: 'icon-btn sm', 'aria-label': `${t.name} options`, onclick: (e: MouseEvent) => this.trackMenu(e, t.id) }, icon('more', 15));
       const vol = h('input', {
         type: 'range',
         class: 'range track-vol',
@@ -169,12 +169,16 @@ export class TracksPanel {
     input.addEventListener('click', (e) => e.stopPropagation());
   }
 
-  private pickColor(t: Track): void {
+  private pickColor(id: string): void {
+    const t = this.find(id);
+    if (!t) return;
     const input = h('input', { type: 'color', value: t.color, style: { position: 'fixed', opacity: '0', pointerEvents: 'none', left: '50%', top: '50%' } }) as HTMLInputElement;
     document.body.append(input);
     input.addEventListener('input', () => {
+      const cur = this.find(id);
+      if (!cur) return;
       this.store.beginGesture();
-      t.color = input.value;
+      cur.color = input.value;
       this.store.touch();
     });
     input.addEventListener('change', () => {
@@ -184,50 +188,56 @@ export class TracksPanel {
     input.click();
   }
 
-  private trackMenu(e: MouseEvent, t: Track): void {
+  /** Track actions look the track up by id when they run: undo/redo swaps in new track objects. */
+  private trackMenu(e: MouseEvent, id: string): void {
     e.stopPropagation();
-    const idx = this.store.song.tracks.indexOf(t);
     const items: (MenuItem | '-')[] = [
       { label: 'Rename', action: () => {
-        const r = this.rows.get(t.id);
+        const r = this.rows.get(id);
         const nm = r?.row.querySelector('.track-name') as HTMLElement | null;
-        if (nm) this.rename(t.id, nm);
+        if (nm) this.rename(id, nm);
       } },
-      { label: 'Change color…', action: () => this.pickColor(t) },
-      { label: 'Duplicate', icon: 'duplicate', action: () => this.duplicate(t) },
+      { label: 'Change color…', action: () => this.pickColor(id) },
+      { label: 'Duplicate', icon: 'duplicate', action: () => this.duplicate(id) },
       '-',
-      { label: 'Move up', action: () => this.move(idx, -1) },
-      { label: 'Move down', action: () => this.move(idx, 1) },
+      { label: 'Move up', action: () => this.move(id, -1) },
+      { label: 'Move down', action: () => this.move(id, 1) },
       '-',
-      { label: 'Clear notes', icon: 'broom', action: () => this.store.update(() => (t.notes = [])) },
-      { label: 'Delete track', icon: 'trash', danger: true, action: () => this.remove(t) },
+      { label: 'Clear notes', icon: 'broom', action: () => this.store.update(() => {
+        const t = this.find(id);
+        if (t) t.notes = [];
+      }) },
+      { label: 'Delete track', icon: 'trash', danger: true, action: () => this.remove(id) },
     ];
     showMenu(e.currentTarget as HTMLElement, items);
   }
 
-  private move(idx: number, d: number): void {
-    const j = idx + d;
+  private move(id: string, d: number): void {
     const tracks = this.store.song.tracks;
-    if (j < 0 || j >= tracks.length) return;
+    const idx = tracks.findIndex((t) => t.id === id);
+    const j = idx + d;
+    if (idx < 0 || j < 0 || j >= tracks.length) return;
     this.store.update((s) => {
       [s.tracks[idx], s.tracks[j]] = [s.tracks[j], s.tracks[idx]];
     });
   }
 
-  private duplicate(t: Track): void {
+  private duplicate(id: string): void {
+    const t = this.find(id);
+    if (!t) return;
     const copy: Track = { ...JSON.parse(JSON.stringify(t)), id: newTrackId(), name: `${t.name} copy`, solo: false };
     copy.notes = copy.notes.map((n) => ({ ...n, id: newNoteId() }));
     this.store.update((s) => {
-      s.tracks.splice(s.tracks.indexOf(t) + 1, 0, copy);
+      s.tracks.splice(s.tracks.findIndex((x) => x.id === id) + 1, 0, copy);
     });
     this.store.setUI({ selectedTrackId: copy.id });
   }
 
-  private remove(t: Track): void {
+  private remove(id: string): void {
     this.store.update((s) => {
-      s.tracks = s.tracks.filter((x) => x.id !== t.id);
+      s.tracks = s.tracks.filter((x) => x.id !== id);
     });
-    if (this.store.ui.selectedTrackId === t.id) this.store.setUI({ selectedTrackId: this.store.song.tracks[0]?.id ?? '' });
+    if (this.store.ui.selectedTrackId === id) this.store.setUI({ selectedTrackId: this.store.song.tracks[0]?.id ?? '' });
   }
 
   nextColor(): string {
