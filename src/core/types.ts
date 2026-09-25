@@ -54,6 +54,8 @@ export interface Track {
   res?: number;
   /** The sound and settings of a sampler track (instrument 'sampler'). */
   sampler?: SamplerSettings;
+  /** Colour effects after the EQ (see TrackFx). */
+  fx?: TrackFx;
   /** Automation lanes: breakpoints that move a setting over time (they override its fixed value). */
   automation?: Partial<Record<AutoParam, AutoPoint[]>>;
   mute: boolean;
@@ -61,6 +63,16 @@ export interface Track {
   /** Whether the track is drawn by the visualizer. */
   visible: boolean;
   notes: Note[];
+}
+
+/** Per-track colour effects: amounts 0..1 (0 = off), width 0..2 (1 = unchanged). */
+export interface TrackFx {
+  saturation?: number;
+  lofi?: number;
+  comp?: number;
+  chorus?: number;
+  wobble?: number;
+  width?: number;
 }
 
 /** Track settings that can be automated. */

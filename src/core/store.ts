@@ -1,6 +1,6 @@
 import { AUTO_PARAMS } from './automation';
 import { SCALES } from './theory';
-import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type Song, type Track } from './types';
+import { BAR, bumpNoteIds, cloneSong, DEFAULT_MASTER, DEFAULT_SAMPLER, DUCK_RELEASE, HPF_OFF, LPF_OFF, MAX_BARS, newNoteId, newTrackId, STEP, type AutoParam, type SamplerSettings, type Song, type Track, type TrackFx } from './types';
 import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
@@ -277,6 +277,19 @@ function normalizeAutomation(v: unknown): Track['automation'] {
   return Object.keys(out).length ? out : undefined;
 }
 
+function normalizeFx(v: unknown): TrackFx | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const out: TrackFx = {};
+  for (const k of ['saturation', 'lofi', 'comp', 'chorus', 'wobble'] as const) {
+    const x = Number(o[k]);
+    if (Number.isFinite(x) && x > 0) out[k] = Math.min(1, x);
+  }
+  const w = Number(o.width);
+  if (Number.isFinite(w) && Math.abs(w - 1) > 0.001) out.width = Math.max(0, Math.min(2, w));
+  return Object.keys(out).length ? out : undefined;
+}
+
 function normalizeSampler(v: Partial<SamplerSettings> | undefined): SamplerSettings | undefined {
   if (!v || typeof v.file !== 'string' || !v.file) return undefined;
   const d = DEFAULT_SAMPLER;
@@ -343,6 +356,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         lpf: num(t.lpf, LPF_OFF, 100, LPF_OFF),
         res: num(t.res, 0, 0, 1),
         sampler: normalizeSampler(t.sampler),
+        fx: normalizeFx(t.fx),
         automation: normalizeAutomation(t.automation),
         mute: !!t.mute,
         solo: !!t.solo,

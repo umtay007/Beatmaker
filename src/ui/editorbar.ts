@@ -1,3 +1,4 @@
+import { fxShape } from '../audio/trackfx';
 import { KITS } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES, regeneratePart } from '../beats/generator';
@@ -39,7 +40,8 @@ function fxActive(t: Track): boolean {
     (t.duck ?? 0) > 0 ||
     [t.eqLow, t.eqMid, t.eqHigh, t.res].some((v) => (v ?? 0) !== 0) ||
     (t.hpf ?? HPF_OFF) > HPF_OFF ||
-    (t.lpf ?? LPF_OFF) < LPF_OFF
+    (t.lpf ?? LPF_OFF) < LPF_OFF ||
+    fxShape(t.fx) !== ''
   );
 }
 
@@ -124,7 +126,7 @@ export class EditorBar {
     ) as HTMLButtonElement;
     this.fx = h(
       'button',
-      { class: 'btn btn-ghost', title: 'Echo, sidechain ducking, EQ and filter for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
+      { class: 'btn btn-ghost', title: 'Echo, colour effects (saturation, compressor, chorus, tape wobble, lo-fi, width), sidechain ducking, EQ and filter for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
       icon('sliders', 15),
       'FX',
     ) as HTMLButtonElement;
@@ -283,6 +285,15 @@ export class EditorBar {
     const db = (v: number) => `${v > 0 ? '+' : ''}${v} dB`;
     const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`) + ' Hz';
     const gain = (get: () => number | undefined, set: (v: number) => void): RowSpec => ({ min: -12, max: 12, step: 0.5, get: () => get() ?? 0, set, fmt: db, reset: 0 });
+    const amt = (id: 'saturation' | 'comp' | 'chorus' | 'wobble' | 'lofi'): RowSpec => ({
+      min: 0,
+      max: 1,
+      step: 0.01,
+      get: () => t().fx?.[id] ?? 0,
+      set: (v) => ((t().fx ??= {})[id] = v),
+      fmt: (v) => (v > 0 ? pct(v) : 'off'),
+      reset: 0,
+    });
     showPopover(
       anchor,
       h(
@@ -296,6 +307,13 @@ export class EditorBar {
         first.kind === 'synth' && first.instrument !== 'sampler'
           ? row('Note tail', { min: 0, max: 1.5, step: 0.01, get: () => t().release ?? 0, set: (v) => (t().release = v), fmt: (v) => (v > 0 ? `${Math.round(v * 1000)} ms` : 'natural'), reset: 0 })
           : null,
+        h('div', { class: 'pop-sub' }, 'Colour'),
+        row('Saturation', amt('saturation')),
+        row('Compressor', amt('comp')),
+        row('Chorus', amt('chorus')),
+        row('Tape wobble', amt('wobble')),
+        row('Lo-fi', amt('lofi')),
+        row('Width', { min: 0, max: 2, step: 0.01, get: () => t().fx?.width ?? 1, set: (v) => ((t().fx ??= {}).width = v), fmt: pct, reset: 1 }),
         h('div', { class: 'pop-sub' }, 'Sidechain · dips on every kick'),
         row('Duck', { min: 0, max: 24, step: 0.5, get: () => t().duck ?? 0, set: (v) => (t().duck = v), fmt: (v) => (v > 0 ? `−${v} dB` : 'off'), reset: 0 }),
         row('Release', { min: 0.05, max: 1, step: 0.01, get: () => t().duckRelease ?? DUCK_RELEASE, set: (v) => (t().duckRelease = v), fmt: (v) => `${Math.round(v * 1000)} ms`, reset: DUCK_RELEASE }),
@@ -308,7 +326,7 @@ export class EditorBar {
         row('Low cut', { min: HPF_OFF, max: 2000, step: 1, log: true, get: () => t().hpf ?? HPF_OFF, set: (v) => (t().hpf = v), fmt: (v) => (v <= HPF_OFF ? 'off' : hz(v)), reset: HPF_OFF }),
         row('High cut', { min: 200, max: LPF_OFF, step: 1, log: true, get: () => t().lpf ?? LPF_OFF, set: (v) => (t().lpf = v), fmt: (v) => (v >= LPF_OFF ? 'off' : hz(v)), reset: LPF_OFF }),
         row('Resonance', { min: 0, max: 1, step: 0.01, get: () => t().res ?? 0, set: (v) => (t().res = v), fmt: pct, reset: 0 }),
-        h('p', { class: 'pop-note' }, 'Note tail cuts every note off that fast once it ends (staccato). The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
+        h('p', { class: 'pop-note' }, 'Colour effects run after the EQ, in this order. Width also spreads mono parts, in a way that folds back to mono cleanly. Note tail cuts every note off that fast once it ends (staccato). The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
       ),
     );
   }

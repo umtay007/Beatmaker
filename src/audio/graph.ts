@@ -1,3 +1,4 @@
+import { buildFx, fxShape, type FxChain } from './trackfx';
 import { AUTO_PARAMS, lanes, valueAt, type AutoParamDef } from '../core/automation';
 import { Timeline } from '../core/timing';
 import { DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
@@ -21,6 +22,9 @@ export interface TrackBus {
   echo: GainNode;
   duckDb: number;
   duckRelease: number;
+  /** Colour effects between the EQ and the sidechain duck, and which of them are built. */
+  fx: FxChain | null;
+  fxShape: string;
 }
 
 const AUTO_DEF = Object.fromEntries(AUTO_PARAMS.map((d) => [d.id, d])) as Record<AutoParamDef['id'], AutoParamDef>;
@@ -238,10 +242,26 @@ export class Graph {
       input.connect(hp).connect(lp).connect(low).connect(mid).connect(high).connect(duck).connect(vol).connect(pan).connect(this.synthBus);
       pan.connect(send).connect(this.reverbIn);
       pan.connect(echo).connect(this.echoIn);
-      b = { input, hp, lp, low, mid, high, duck, vol, pan, send, echo, duckDb: 0, duckRelease: DUCK_RELEASE };
+      b = { input, hp, lp, low, mid, high, duck, vol, pan, send, echo, duckDb: 0, duckRelease: DUCK_RELEASE, fx: null, fxShape: '' };
       this.buses.set(track.id, b);
     }
     return b;
+  }
+
+  /** Rebuild a track's effect chain when effects are switched on or off, else just move its amounts. */
+  private applyFx(b: TrackBus, t: Track, smooth: boolean): void {
+    const shape = fxShape(t.fx);
+    if (shape !== b.fxShape) {
+      b.high.disconnect();
+      b.fx?.output.disconnect();
+      b.fx?.dispose();
+      b.fx = shape ? buildFx(this.ctx, t.fx!) : null;
+      b.fxShape = shape;
+      if (b.fx) {
+        b.high.connect(b.fx.input);
+        b.fx.output.connect(b.duck);
+      } else b.high.connect(b.duck);
+    } else if (b.fx) b.fx.update(t.fx!, smooth);
   }
 
   /**
@@ -279,6 +299,7 @@ export class Graph {
     };
     for (const t of song.tracks) {
       const b = this.bus(t);
+      this.applyFx(b, t, smooth);
       const audible = !t.mute && (!anySolo || t.solo);
       const auto = t.automation;
       /** The setting's value now: its automation at `autoTick`, else the track's own. */
