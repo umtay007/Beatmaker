@@ -51,6 +51,12 @@ result as an MP4 or WebM video.
   first beat (to the millisecond), key and tuning. The waveform then appears behind the editor, so you can program the drums and
   notes by ear while it plays. The *Shift grid* buttons (−1, −½, +½, +1 beat) fix any leftover
   offset, and *Starter beat* writes a first draft in any style on that tempo, key and length.
+- **Analyze sound & match mix** measures what the original's mix engineer did: the EQ curve,
+  loudness and compression, stereo width, reverb length, tempo-locked echo, bass saturation and
+  sidechain pumping. It can't name plugins, only what they did. *Match my mix to it* renders your
+  song, compares it with the same stretch of the original (use the loop to pick an instrumental
+  part) and sets the new **Master** section: a 10-band EQ, stereo width, output level, reverb length
+  and echo timing.
 - Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
   become drum tracks, and GM programs are mapped to the closest instrument (the real, sampled ones

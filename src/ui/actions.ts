@@ -300,6 +300,8 @@ export class Actions {
     mine = await render(master);
     const fix = matchGains(goal.bands, mine.bands);
     master.eq = master.eq.map((g, i) => Math.round(Math.max(-12, Math.min(12, g + fix[i] * 0.7)) * 2) / 2);
+    // EQ moves change the side/mid balance too (bass is mono), so correct the width again.
+    master.width = Math.round(Math.max(0, Math.min(2.5, master.width * Math.pow(10, (goal.width - mine.width) / 20))) * 100) / 100;
     master.gain = Math.round(Math.max(-12, Math.min(9, goal.rms - mine.rms)) * 2) / 2;
     const changes: string[] = [];
     const fmtHz = (f: number) => (f >= 1000 ? `${f / 1000}k` : String(f));
