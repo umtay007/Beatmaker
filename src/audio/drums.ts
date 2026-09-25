@@ -1,7 +1,9 @@
 /**
- * Drum kits synthesized from scratch. Each voice is rendered once into an AudioBuffer with an
- * OfflineAudioContext, so playback is just a buffer source (cheap and sample-accurate).
+ * Drum kits: synthesized from scratch, or recorded (classic drum machines streamed from a CDN, or
+ * packs the user loads). Every voice ends up as one AudioBuffer, so playback is just a buffer
+ * source (cheap and sample-accurate). Synthesized voices are rendered with an OfflineAudioContext.
  */
+import { fetchTracked } from './samples';
 
 interface KickP { kind: 'kick'; f0: number; f1: number; pitchDecay: number; decay: number; click: number; drive: number; tone?: number }
 interface SnareP { kind: 'snare'; tone: number; toneDecay: number; noise: number; noiseDecay: number; hp: number; lp: number; body?: number }
@@ -18,9 +20,25 @@ interface MetalP { kind: 'metal'; freq: number; decay: number }
 /** `level` scales a voice after peak normalization, to balance quiet voices inside a kit. */
 export type DrumP = (KickP | SnareP | ClapP | HatP | CymbalP | TomP | RimP | ShakerP | BellP | MetalP) & { level?: number };
 
+/** Recordings for some (or all) of a kit's voices. */
+export interface KitSamples {
+  /** Get one recording's file bytes by its name in `files`. */
+  fetch: (file: string) => Promise<ArrayBuffer>;
+  /** GM drum pitch → recording. Voices without one use the kit's synthesized voice. */
+  files: Record<number, string>;
+  /** Level per voice after peak normalization (1 = full). */
+  levels?: Record<number, number>;
+}
+
+export type KitGroup = 'Synthesized' | 'Recorded' | 'Your packs';
+
 export interface KitDef {
   id: string;
   label: string;
+  group?: KitGroup;
+  samples?: KitSamples;
+  /** Synthesized kit that plays while the recordings download (and for voices without one). */
+  fallback?: string;
   /** Post-processing applied to every rendered voice. */
   crush?: { bits: number; hold: number; lp?: number };
   gain?: number;
@@ -159,7 +177,59 @@ KITS.push(
   }),
 );
 
+/**
+ * A recorded drum machine from the fluid-music/open-drums packages on npm, streamed from jsDelivr.
+ * Voices the machine never had (snaps, tambourine…) come from a synthesized kit.
+ */
+function machine(id: string, label: string, pkg: string, dir: string, files: Record<number, string>, fallback: string, levels?: Record<number, number>): KitDef {
+  const fb = KITS.find((k) => k.id === fallback) ?? KITS[0];
+  const root = `https://cdn.jsdelivr.net/npm/${pkg}/${dir}/`;
+  return { id, label, group: 'Recorded', voices: fb.voices, gain: fb.gain, fallback: fb.id, samples: { fetch: (f) => fetchTracked(root + f), files, levels } };
+}
+
+KITS.push(
+  // Michael Fischer's TR-808 set (1994): free, with no licensing restrictions.
+  machine('tr808', 'TR-808', '@fluid-music/tr-808@0.0.2', 'TR808WAV', {
+    36: 'BD/BD2550.WAV', 38: 'SD/SD5050.WAV', 39: 'CP/CP.WAV', 42: 'CH/CH.WAV', 46: 'OH/OH25.WAV',
+    37: 'RS/RS.WAV', 70: 'MA/MA.WAV', 63: 'MC/MC50.WAV', 64: 'LC/LC50.WAV', 60: 'HC/HC50.WAV',
+    56: 'CB/CB.WAV', 76: 'CL/CL.WAV', 45: 'LT/LT50.WAV', 47: 'MT/MT50.WAV', 50: 'HT/HT50.WAV',
+    49: 'CY/CY5075.WAV', 51: 'CY/CY5025.WAV',
+  }, 'trap', { 70: 0.7, 76: 0.7 }),
+  // A long-decay 808 kick for trap: the boom that doubles as the bass.
+  machine('tr808long', 'TR-808 (long kick)', '@fluid-music/tr-808@0.0.2', 'TR808WAV', {
+    36: 'BD/BD0075.WAV', 38: 'SD/SD2575.WAV', 39: 'CP/CP.WAV', 42: 'CH/CH.WAV', 46: 'OH/OH10.WAV',
+    37: 'RS/RS.WAV', 70: 'MA/MA.WAV', 56: 'CB/CB.WAV', 45: 'LT/LT25.WAV', 47: 'MT/MT25.WAV', 50: 'HT/HT25.WAV',
+    49: 'CY/CY2575.WAV', 51: 'CY/CY2525.WAV',
+  }, 'trap', { 70: 0.7 }),
+  // Rob Roy Recordings' TR-909 set (1995): free to use and share, not to be sold.
+  machine('tr909', 'TR-909', '@fluid-music/tr-909@0.0.4', 'TR909all', {
+    36: 'BT3AADA.WAV', 38: 'ST3T3S7.WAV', 39: 'HANDCLP1.WAV', 42: 'HHCD2.WAV', 46: 'HHOD4.WAV',
+    37: 'RIM127.WAV', 45: 'LT3D7.WAV', 47: 'MT3D7.WAV', 50: 'HT3D7.WAV', 49: 'CSHD2.WAV', 51: 'RIDED2.WAV',
+  }, 'house'),
+  // Francois Dion's TR-707 set: public domain.
+  machine('tr707', 'TR-707', '@fluid-music/tr-707@0.0.3', 'TR707WAV', {
+    36: 'BassDrum1.wav', 38: 'Snare1.wav', 39: 'HandClap.wav', 42: 'HhC.wav', 46: 'HhO.wav', 37: 'RimShot.wav',
+    56: 'CowBell.wav', 54: 'Tamb.wav', 45: 'LowTom.wav', 47: 'MedTom.wav', 50: 'HiTom.wav', 49: 'Crash.wav', 51: 'Ride.wav',
+  }, 'retro'),
+);
+
 export const KIT_BY_ID = new Map(KITS.map((k) => [k.id, k]));
+
+/** Add (or replace) a kit at runtime: the user's own drum packs. */
+export function registerKit(def: KitDef): void {
+  const i = KITS.findIndex((k) => k.id === def.id);
+  if (i >= 0) KITS[i] = def;
+  else KITS.push(def);
+  KIT_BY_ID.set(def.id, def);
+  for (const key of [...kitCache.keys()]) if (key.startsWith(def.id + '@')) kitCache.delete(key);
+}
+
+export function unregisterKit(id: string): void {
+  const i = KITS.findIndex((k) => k.id === id);
+  if (i >= 0) KITS.splice(i, 1);
+  KIT_BY_ID.delete(id);
+  for (const key of [...kitCache.keys()]) if (key.startsWith(id + '@')) kitCache.delete(key);
+}
 
 // ---------------------------------------------------------------------------------------------
 
@@ -477,9 +547,9 @@ function voiceLength(p: DrumP): number {
   }
 }
 
-function postProcess(buf: AudioBuffer, kitDef: KitDef, level = 1): void {
+function postProcess(buf: AudioBuffer, kitDef: KitDef, level = 1, recorded = false): void {
   const d = buf.getChannelData(0);
-  const crush = kitDef.crush;
+  const crush = recorded ? undefined : kitDef.crush;
   let peak = 0;
   if (crush) {
     const levels = Math.pow(2, crush.bits - 1);
@@ -492,25 +562,73 @@ function postProcess(buf: AudioBuffer, kitDef: KitDef, level = 1): void {
       d[i] = lp;
     }
   }
-  for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
-  const g = (kitDef.gain ?? 1) * level * (peak > 0.95 ? 0.95 / peak : 1);
-  if (g !== 1) for (let i = 0; i < d.length; i++) d[i] *= g;
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  for (const ch of chans) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
+  // Synthesized voices are only turned down when too hot; recordings are all brought to one peak.
+  const norm = recorded ? (peak > 1e-4 ? 0.95 / peak : 1) : peak > 0.95 ? 0.95 / peak : 1;
+  const g = (kitDef.gain ?? 1) * level * norm;
   // Tiny fade-out to avoid clicks.
   const fade = Math.min(d.length, Math.floor(buf.sampleRate * 0.01));
-  for (let i = 0; i < fade; i++) d[d.length - 1 - i] *= i / fade;
+  for (const ch of chans) {
+    if (g !== 1) for (let i = 0; i < ch.length; i++) ch[i] *= g;
+    for (let i = 0; i < fade; i++) ch[ch.length - 1 - i] *= i / fade;
+  }
+}
+
+/** Longest recording kept per voice (a user's 20-second crash would only waste memory). */
+const MAX_HIT = 8;
+
+/** Decode a recording at the kit's sample rate, drop silence before the hit and cap its length. */
+async function decodeHit(data: ArrayBuffer, sampleRate: number): Promise<AudioBuffer> {
+  const raw = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(data);
+  const chans = Array.from({ length: Math.min(2, raw.numberOfChannels) }, (_, c) => raw.getChannelData(c));
+  let peak = 0;
+  for (const ch of chans) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
+  const thr = peak * 0.01; // -40 dB
+  let start = 0;
+  while (start < raw.length && chans.every((ch) => Math.abs(ch[start]) < thr)) start++;
+  start = Math.max(0, start - Math.round(sampleRate * 0.001));
+  const len = Math.max(1, Math.min(raw.length - start, Math.round(MAX_HIT * sampleRate)));
+  const out = new AudioBuffer({ length: len, numberOfChannels: chans.length, sampleRate });
+  chans.forEach((ch, c) => out.copyToChannel(ch.subarray(start, start + len), c));
+  return out;
 }
 
 const kitCache = new Map<string, Promise<Map<number, AudioBuffer>>>();
+/** Kits loaded while some recordings failed (offline): retried after a while. */
+const incomplete = new Map<string, number>();
+const RETRY_MS = 30000;
 
+/**
+ * Render (or download and decode) every voice of a kit at a sample rate. Cached; a kit whose
+ * recordings couldn't all be fetched plays synthesized stand-ins and is retried 30 s later.
+ */
 export function loadKit(id: string, sampleRate: number): Promise<Map<number, AudioBuffer>> {
   const key = id + '@' + sampleRate;
+  const failedAt = incomplete.get(key);
+  if (failedAt !== undefined && Date.now() - failedAt > RETRY_MS) {
+    incomplete.delete(key);
+    kitCache.delete(key);
+  }
   let p = kitCache.get(key);
   if (!p) {
     const def = KIT_BY_ID.get(id) ?? KITS[0];
     p = (async () => {
       const out = new Map<number, AudioBuffer>();
+      let missing = false;
       await Promise.all(
         Object.entries(def.voices).map(async ([pitch, vp]) => {
+          const file = def.samples?.files[Number(pitch)];
+          if (file) {
+            try {
+              const buf = await decodeHit(await def.samples!.fetch(file), sampleRate);
+              postProcess(buf, def, def.samples!.levels?.[Number(pitch)] ?? 1, true);
+              out.set(Number(pitch), buf);
+              return;
+            } catch {
+              missing = true; // fall through to the synthesized voice
+            }
+          }
           const len = Math.ceil(voiceLength(vp) * sampleRate);
           const ctx = new OfflineAudioContext(1, len, sampleRate);
           renderVoice(ctx, vp);
@@ -519,6 +637,7 @@ export function loadKit(id: string, sampleRate: number): Promise<Map<number, Aud
           out.set(Number(pitch), buf);
         }),
       );
+      if (missing) incomplete.set(key, Date.now());
       return out;
     })();
     kitCache.set(key, p);

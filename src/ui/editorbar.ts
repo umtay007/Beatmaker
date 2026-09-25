@@ -1,3 +1,4 @@
+import { KITS } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES, regeneratePart } from '../beats/generator';
 import type { Store } from '../core/store';
@@ -24,6 +25,9 @@ const LENGTHS: [number, string][] = [
   [PPQ * 2, '1/2'],
   [PPQ * 4, '1 bar'],
 ];
+
+/** Kit menu entry that opens the pack loader instead of choosing a kit. */
+const LOAD_PACK = '__pack__';
 
 /** Whether any of the FX popover's settings differ from their defaults. */
 function fxActive(t: Track): boolean {
@@ -62,6 +66,11 @@ export class EditorBar {
     this.inst.addEventListener('change', () => {
       const t = store.track;
       if (!t) return;
+      if (this.inst.value === LOAD_PACK) {
+        this.inst.value = t.instrument;
+        actions.loadDrumPack();
+        return;
+      }
       store.update(() => (t.instrument = this.inst.value));
       void engine.ensureKits();
       engine.preview(t, t.kind === 'drums' ? 36 : 60, 0.8, 0.4);
@@ -165,8 +174,10 @@ export class EditorBar {
     }
     this.title.style.setProperty('--tc', t.color);
     this.title.replaceChildren(h('i'), t.name);
-    if (this.instKind !== t.kind) {
-      this.instKind = t.kind;
+    // Kits can be added at runtime (the user's packs), so key the list on them too.
+    const optsKey = t.kind === 'drums' ? 'drums:' + KITS.map((k) => k.id).join(',') : t.kind;
+    if (this.instKind !== optsKey) {
+      this.instKind = optsKey;
       this.inst.replaceChildren();
       let group: HTMLOptGroupElement | null = null;
       for (const [v, l] of instrumentOptions(t.kind)) {
@@ -175,6 +186,7 @@ export class EditorBar {
           this.inst.append(group);
         } else (group ?? this.inst).append(h('option', { value: v }, l));
       }
+      if (t.kind === 'drums') this.inst.append(h('option', { value: LOAD_PACK }, '＋ Load a drum pack…'));
     }
     this.inst.value = t.instrument;
     this.grid.value = String(ui.grid);

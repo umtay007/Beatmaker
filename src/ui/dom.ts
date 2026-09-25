@@ -145,6 +145,24 @@ export function pickFile(accept: string): Promise<File | null> {
   });
 }
 
+/** Pick several files, or (directory) every file in a folder and its subfolders. */
+export function pickFiles(accept: string, directory = false): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'file', accept: accept || undefined, multiple: true, style: { display: 'none' } }) as HTMLInputElement;
+    if (directory) input.setAttribute('webkitdirectory', '');
+    input.addEventListener('change', () => {
+      resolve([...(input.files ?? [])]);
+      input.remove();
+    });
+    input.addEventListener('cancel', () => {
+      resolve([]);
+      input.remove();
+    });
+    document.body.append(input);
+    input.click();
+  });
+}
+
 export function safeName(s: string): string {
   return (s || 'beat').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'beat';
 }

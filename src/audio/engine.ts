@@ -1,7 +1,7 @@
 import type { Store } from '../core/store';
 import { Timeline } from '../core/timing';
 import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types';
-import { loadKit } from './drums';
+import { KIT_BY_ID, loadKit } from './drums';
 import { buildEvents, Graph, graphLatency, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
 import type { Voice } from './instruments';
 import { ensureSongSamples } from './samples';
@@ -50,7 +50,6 @@ export class AudioEngine {
   private tl: Timeline;
   private tlKey = '';
   private backingSrcs: AudioBufferSourceNode[] = [];
-  private kitLoads = new Map<string, Promise<void>>();
 
   constructor(private store: Store) {
     this.tl = new Timeline(store.song);
@@ -104,32 +103,42 @@ export class AudioEngine {
 
   /**
    * Load drum kits and the recorded samples the song uses. Live playback waits at most a few
-   * seconds for samples (a stand-in synth covers the rest); exports wait for everything.
+   * seconds for recordings (synthesized stand-ins cover the rest until they arrive); exports wait
+   * for everything.
    */
   ensureKits(sampleWait = 4): Promise<void> {
     if (!this.ctx) return Promise.resolve();
-    const samples = ensureSongSamples(this.song.tracks);
-    const waitSamples = sampleWait === Infinity ? samples : Promise.race([samples, new Promise<void>((r) => setTimeout(r, sampleWait * 1000))]);
-    return Promise.all([this.loadKits(), waitSamples]).then(() => undefined);
+    const wait = (p: Promise<void>) => (sampleWait === Infinity ? p : Promise.race([p, new Promise<void>((r) => setTimeout(r, sampleWait * 1000))]));
+    return Promise.all([this.loadStandIns(), wait(this.loadKits()), wait(ensureSongSamples(this.song.tracks))]).then(() => undefined);
+  }
+
+  /** Give recorded kits that are still downloading their synthesized fallback voices meanwhile. */
+  private loadStandIns(): Promise<void> {
+    const rate = this.ctx!.sampleRate;
+    const ids = new Set(this.song.tracks.filter((t) => t.kind === 'drums' && !this.kits.has(t.instrument)).map((t) => t.instrument));
+    return Promise.all(
+      [...ids].map((id) => {
+        const fb = KIT_BY_ID.get(id)?.fallback;
+        if (!fb) return undefined;
+        return loadKit(fb, rate).then((bufs) => {
+          if (!this.kits.has(id)) this.kits.set(id, bufs);
+        });
+      }),
+    ).then(() => undefined);
   }
 
   private loadKits(): Promise<void> {
     if (!this.ctx) return Promise.resolve();
     const rate = this.ctx.sampleRate;
     const ids = new Set(this.song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument));
-    const loads: Promise<void>[] = [];
-    for (const id of ids) {
-      if (this.kits.has(id)) continue;
-      let p = this.kitLoads.get(id);
-      if (!p) {
-        p = loadKit(id, rate).then((bufs) => {
+    // loadKit is cached; asking again picks up a kit that was re-registered or is due a retry.
+    return Promise.all(
+      [...ids].map((id) =>
+        loadKit(id, rate).then((bufs) => {
           this.kits.set(id, bufs);
-        });
-        this.kitLoads.set(id, p);
-      }
-      loads.push(p);
-    }
-    return Promise.all(loads).then(() => undefined);
+        }),
+      ),
+    ).then(() => undefined);
   }
 
   private refreshTimeline(): void {
@@ -438,7 +447,8 @@ export class AudioEngine {
       return;
     }
     if (track.kind === 'drums' && !this.kits.has(track.instrument)) {
-      void this.ensureKits().then(() => this.sched?.play(track, pitch, vel, this.ctx!.currentTime + 0.005, dur));
+      // Don't hold a preview back for a download: a stand-in voice is fine for a click.
+      void this.ensureKits(0).then(() => this.sched?.play(track, pitch, vel, this.ctx!.currentTime + 0.005, dur));
       return;
     }
     this.sched.play(track, pitch, vel, this.ctx.currentTime + 0.005, dur);

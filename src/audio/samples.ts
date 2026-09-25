@@ -156,6 +156,24 @@ async function fetchSample(u: string): Promise<ArrayBuffer> {
   }
 }
 
+/**
+ * Download a recording through the same throttle, retries and loading status as the instrument
+ * samples (used by the recorded drum kits too). Rejects when it can't be fetched.
+ */
+export async function fetchTracked(u: string): Promise<ArrayBuffer> {
+  pending++;
+  emit();
+  try {
+    return await slot(() => fetchSample(u));
+  } catch (e) {
+    failed = true;
+    throw e;
+  } finally {
+    pending--;
+    emit();
+  }
+}
+
 function load(def: SampledDef, name: string): Promise<AudioBuffer | null> {
   const key = def.id + '/' + name;
   let p = loads.get(key);

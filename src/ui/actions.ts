@@ -1,4 +1,5 @@
 import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type SoundReport } from '../audio/analyze';
+import { KIT_BY_ID } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { detectAudioKey } from '../audio/key';
@@ -14,6 +15,7 @@ import { exportVideo, pickFormat } from '../visual/exporter';
 import type { VisualPlayer } from '../visual/player';
 import { mergeVisual, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
 import { downloadBlob, h, modal, pickFile, safeName, toast } from './dom';
+import { showPackLoader } from './packs';
 
 const SCALES_7 = new Set(['minor', 'major', 'dorian', 'phrygian', 'harmonic', 'mixolydian', 'lydian']);
 
@@ -166,7 +168,10 @@ export class Actions {
       if (data.visual) this.store.replaceVisual(mergeVisual(data.visual));
       this.engine.stop();
       void this.engine.ensureKits();
-      toast(`Opened ${file.name}`, 'ok');
+      const missing = this.store.song.tracks.filter((t) => t.kind === 'drums' && !KIT_BY_ID.has(t.instrument));
+      if (missing.length) {
+        toast(`Opened ${file.name}. ${missing.map((t) => `“${t.name}”`).join(', ')} used a drum pack that isn't saved in this browser: playing Trap 808 until you load it (File → Load drum pack…) and pick it.`, 'info', 7000);
+      } else toast(`Opened ${file.name}`, 'ok');
     } catch (e) {
       toast(`Couldn't open project: ${(e as Error).message}`, 'error', 4000);
     }
@@ -198,6 +203,11 @@ export class Actions {
     if (kind === 'image') return this.setBackgroundImage(file);
     // Audio, or unknown: let the browser's decoder decide.
     return this.importAudioFile(file, kind === 'unknown');
+  }
+
+  /** Open the drum pack loader (optionally with files already picked or dropped). */
+  loadDrumPack(files: File[] = []): void {
+    showPackLoader(this.store, this.engine, files);
   }
 
   async pickAndOpen(accept: string): Promise<void> {

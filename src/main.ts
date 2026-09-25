@@ -1,5 +1,6 @@
 import './styles.css';
 import { AudioEngine } from './audio/engine';
+import { restoreUserKits } from './audio/packs';
 import { onSampleStatus } from './audio/samples';
 import { demoSong } from './beats/templates';
 import { store } from './core/store';
@@ -11,6 +12,7 @@ import { Editor } from './ui/editor';
 import { EditorBar } from './ui/editorbar';
 import { Inspector } from './ui/inspector';
 import { installKeyboard } from './ui/keyboard';
+import { droppedFiles, isAudioFile } from './ui/packs';
 import { TopBar } from './ui/topbar';
 import { TracksPanel } from './ui/tracks';
 
@@ -24,6 +26,8 @@ if (!store.restoreSaved()) {
 if (!store.song.tracks.some((t) => t.id === store.ui.selectedTrackId)) store.ui.selectedTrackId = store.song.tracks[0]?.id ?? '';
 
 const engine = new AudioEngine(store);
+// Drum packs saved in this browser: register them, then refresh kit menus and loaded kits.
+void restoreUserKits().then(() => store.emit('song'));
 
 // ---------------------------------------------------------------------------------------------
 // Layout
@@ -144,7 +148,7 @@ function localStorageSet(k: string, v: string): void {
 
 // Drag & drop files anywhere
 {
-  document.body.append(h('div', { class: 'drop-hint' }, 'Drop a MIDI, audio, image or project file'));
+  document.body.append(h('div', { class: 'drop-hint' }, 'Drop a MIDI, audio, image or project file, or a folder of drum sounds'));
   let depth = 0;
   window.addEventListener('dragenter', (e) => {
     if (!e.dataTransfer?.types.includes('Files')) return;
@@ -164,10 +168,18 @@ function localStorageSet(k: string, v: string): void {
       toast('Wait for the video export to finish before opening files', 'error');
       return;
     }
-    const files = [...(e.dataTransfer?.files ?? [])];
-    // MIDI first so a dropped MIDI + audio pair lines up.
-    files.sort((a, b) => Number(/\.midi?$/i.test(b.name)) - Number(/\.midi?$/i.test(a.name)));
+    const dt = e.dataTransfer;
+    if (!dt) return;
     void (async () => {
+      const { files, folder } = await droppedFiles(dt);
+      // A folder, or several sounds at once, is a drum pack; one audio file is a reference track.
+      const audio = files.filter(isAudioFile);
+      if (folder || (audio.length >= 2 && audio.length === files.length)) {
+        actions.loadDrumPack(audio);
+        return;
+      }
+      // MIDI first so a dropped MIDI + audio pair lines up.
+      files.sort((a, b) => Number(/\.midi?$/i.test(b.name)) - Number(/\.midi?$/i.test(a.name)));
       for (const f of files) await actions.openFile(f);
     })();
   });
@@ -187,11 +199,11 @@ window.addEventListener('keydown', unlock, true);
   let wasLoading = false;
   let warned = false;
   onSampleStatus(({ loading, failed }) => {
-    if (loading > 0 && !wasLoading) toast('Loading real instruments…', 'info', 1800);
+    if (loading > 0 && !wasLoading) toast('Loading recorded sounds…', 'info', 1800);
     wasLoading = loading > 0;
     if (failed && !warned) {
       warned = true;
-      toast("Couldn't download some real-instrument samples (offline?). Using synth stand-ins.", 'error', 5000);
+      toast("Couldn't download some recorded sounds (offline?). Using synth stand-ins.", 'error', 5000);
     }
   });
 }

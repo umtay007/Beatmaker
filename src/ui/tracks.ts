@@ -11,7 +11,16 @@ export function instrumentLabel(t: Track): string {
 }
 
 export function instrumentOptions(kind: Track['kind']): [string, string][] {
-  if (kind === 'drums') return KITS.map((k) => [k.id, k.label]);
+  if (kind === 'drums') {
+    const out: [string, string][] = [];
+    for (const group of ['Synthesized', 'Recorded', 'Your packs'] as const) {
+      const list = KITS.filter((k) => (k.group ?? 'Synthesized') === group);
+      if (!list.length) continue;
+      out.push([`group:${group}`, group]);
+      for (const k of list) out.push([k.id, k.label]);
+    }
+    return out;
+  }
   const out: [string, string][] = [];
   for (const group of GROUPS) {
     const list = INSTRUMENTS.filter((i) => i.group === group);

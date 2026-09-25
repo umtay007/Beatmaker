@@ -37,6 +37,12 @@ result as an MP4 or WebM video.
 - **9 synthesized drum kits** (Trap 808, Florida Trap, Boom Bap, Lo-Fi Dusty, House 909, Breaks,
   Retro 80s, Acoustic Kit, Afro Percussion) with 20 voices each, including snap, tambourine, congas,
   bongo, woodblock, triangle, shaker, cowbell, toms, crash and ride.
+- **Recorded drum machines**: a real **TR-808** (plus a long-kick variant for trap), **TR-909** and
+  **TR-707**, streamed on demand. Voices a machine never had fall back to synthesized ones.
+- **Load your own drum packs**: pick (or drop) the folder of any sample pack you have. Files are
+  matched to drum voices by name ("Kick 01.wav", "Hats/Open Hat 3.wav", "BD0025.WAV"…), you can
+  change any pick with a preview, and the pack is saved in your browser as a kit. Nothing is
+  uploaded.
 - Swing, tempo, key and scale, a loop range, a metronome, and live input from your computer
   keyboard with recording.
 - A song-wide **tuning** control (in cents) and a per-track **fine tune**, for matching recordings
@@ -129,6 +135,11 @@ keep the tab visible while it records.
 The sampled instruments are the [tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
 sample set by Nicholaus Brosowsky (CC BY 3.0), loaded from the jsDelivr CDN.
 
+The recorded drum machines come from the [fluid-music/open-drums](https://github.com/fluid-music/open-drums)
+packages, also loaded from jsDelivr: the TR-808 set by Michael Fischer (free, no restrictions), the
+TR-909 set by Jason Baker / Rob Roy Recordings (free to use and share, not to be sold) and the
+TR-707 set by Francois Dion (public domain).
+
 ## Keyboard shortcuts
 
 | Keys | Action |
@@ -157,7 +168,7 @@ the preview falls back to 2D rendering with no post effects.
 ```
 src/
   core/      song model, tempo map + swing timeline, music theory & chord detection, store/undo
-  audio/     drum-kit synthesis, synthesized and sampled instruments, mixer graph, lookahead
+  audio/     drum kits (synthesized, recorded, user packs), synthesized and sampled instruments, mixer graph, lookahead
              scheduler, offline render, tempo / key / tuning detection
   beats/     genre-aware beat generator, blank/demo templates
   midi/      Standard MIDI File parser/writer and GM mapping
