@@ -478,6 +478,8 @@ export class Actions {
     const ref = this.engine.backingBuffer;
     if (!ref) return [];
     const song = this.store.song;
+    // The comparison renders the song: fit the recorded instruments, not their stand-ins.
+    await this.checkSamples(song.tracks);
     // Compare the loop range if one is set (pick an instrumental part: vocals in the original
     // would pull the EQ towards the mids), otherwise the start of the song. 30 s is plenty.
     const tl = this.engine.timeline;

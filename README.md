@@ -64,7 +64,8 @@ result as an MP4 or WebM video.
 - A **"New part" button** that rewrites a single track in any style.
 - A mixer with volume, pan, reverb send, a tempo-synced **echo** send (1/8, dotted 1/8, 1/4
   triplet…), mute and solo for each track.
-- Per-track **FX** in the editor bar: echo, fine tune, **sidechain ducking** (the track dips on
+- Per-track **FX** in the editor bar: echo, fine tune, **note tail** (cut a ringing or sustained
+  instrument short once each note ends, for staccato plucks), **sidechain ducking** (the track dips on
   every kick and swells back, like a sidechained compressor, with depth and release), a 3-band
   **EQ** with a sweepable mid, and a **low-cut / high-cut filter** with resonance.
 

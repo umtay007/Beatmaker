@@ -35,6 +35,9 @@ export interface Track {
   echo?: number;
   /** Fine tuning of this track in cents (synth tracks). */
   tune?: number;
+  /** Synth tracks: seconds a note takes to die away once it ends, when shorter than the
+   *  instrument's own tail (0 = the instrument's own). Makes a sustained or ringing sound staccato. */
+  release?: number;
   /** Sidechain ducking on the song's kick drum: how far the track dips, in dB (0 = off). */
   duck?: number;
   /** How long the ducking takes to swell back, in seconds. */

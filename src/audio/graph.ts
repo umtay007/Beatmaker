@@ -510,7 +510,31 @@ export class NoteScheduler {
     }
     const inst = instrumentFor(track.instrument);
     const from = glideFrom === undefined ? undefined : glideFrom + tune;
-    const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
+    const tail = track.release ?? 0;
+    if (tail <= 0) {
+      const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
+      this.track(voice, dur === null ? Infinity : at + dur + 4);
+      return voice;
+    }
+    // A shorter tail than the instrument's own: fade the note out on a gain of its own once it ends
+    // (about -43 dB after `tail` seconds).
+    const cut = ctx.createGain();
+    cut.connect(bus.input);
+    const inner = inst.build(ctx, cut, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
+    let faded = false;
+    const fade = (t: number) => {
+      if (faded) return;
+      faded = true;
+      cut.gain.setTargetAtTime(0, Math.max(t, at), tail / 5);
+    };
+    if (dur !== null) fade(at + dur);
+    const voice: Voice = {
+      release: (t) => {
+        inner.release(t);
+        fade(t);
+      },
+      kill: (t) => inner.kill(t),
+    };
     this.track(voice, dur === null ? Infinity : at + dur + 4);
     return voice;
   }

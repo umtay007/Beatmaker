@@ -332,6 +332,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         reverb: num(t.reverb, 0.15, 0, 1),
         echo: num(t.echo, 0, 0, 1),
         tune: Math.round(num(t.tune, 0, -100, 100)),
+        release: num(t.release, 0, 0, 2),
         duck: num(t.duck, 0, 0, 30),
         duckRelease: num(t.duckRelease, DUCK_RELEASE, 0.03, 1.5),
         eqLow: num(t.eqLow, 0, -18, 18),

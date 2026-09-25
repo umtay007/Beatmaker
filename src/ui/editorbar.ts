@@ -35,7 +35,7 @@ const LOAD_PACK = '__pack__';
 function fxActive(t: Track): boolean {
   return (
     (t.echo ?? 0) > 0 ||
-    (t.kind === 'synth' && (t.tune ?? 0) !== 0) ||
+    (t.kind === 'synth' && ((t.tune ?? 0) !== 0 || (t.release ?? 0) > 0)) ||
     (t.duck ?? 0) > 0 ||
     [t.eqLow, t.eqMid, t.eqHigh, t.res].some((v) => (v ?? 0) !== 0) ||
     (t.hpf ?? HPF_OFF) > HPF_OFF ||
@@ -293,6 +293,9 @@ export class EditorBar {
         first.kind === 'synth'
           ? row('Fine tune', { min: -100, max: 100, step: 1, get: () => t().tune ?? 0, set: (v) => (t().tune = v), fmt: (v) => `${v > 0 ? '+' : ''}${v} ct`, reset: 0 })
           : null,
+        first.kind === 'synth' && first.instrument !== 'sampler'
+          ? row('Note tail', { min: 0, max: 1.5, step: 0.01, get: () => t().release ?? 0, set: (v) => (t().release = v), fmt: (v) => (v > 0 ? `${Math.round(v * 1000)} ms` : 'natural'), reset: 0 })
+          : null,
         h('div', { class: 'pop-sub' }, 'Sidechain · dips on every kick'),
         row('Duck', { min: 0, max: 24, step: 0.5, get: () => t().duck ?? 0, set: (v) => (t().duck = v), fmt: (v) => (v > 0 ? `−${v} dB` : 'off'), reset: 0 }),
         row('Release', { min: 0.05, max: 1, step: 0.01, get: () => t().duckRelease ?? DUCK_RELEASE, set: (v) => (t().duckRelease = v), fmt: (v) => `${Math.round(v * 1000)} ms`, reset: DUCK_RELEASE }),
@@ -305,7 +308,7 @@ export class EditorBar {
         row('Low cut', { min: HPF_OFF, max: 2000, step: 1, log: true, get: () => t().hpf ?? HPF_OFF, set: (v) => (t().hpf = v), fmt: (v) => (v <= HPF_OFF ? 'off' : hz(v)), reset: HPF_OFF }),
         row('High cut', { min: 200, max: LPF_OFF, step: 1, log: true, get: () => t().lpf ?? LPF_OFF, set: (v) => (t().lpf = v), fmt: (v) => (v >= LPF_OFF ? 'off' : hz(v)), reset: LPF_OFF }),
         row('Resonance', { min: 0, max: 1, step: 0.01, get: () => t().res ?? 0, set: (v) => (t().res = v), fmt: pct, reset: 0 }),
-        h('p', { class: 'pop-note' }, 'The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
+        h('p', { class: 'pop-note' }, 'Note tail cuts every note off that fast once it ends (staccato). The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
       ),
     );
   }
