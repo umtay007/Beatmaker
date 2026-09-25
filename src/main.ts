@@ -1,5 +1,6 @@
 import './styles.css';
 import { AudioEngine } from './audio/engine';
+import { onSampleStatus } from './audio/samples';
 import { demoSong } from './beats/templates';
 import { store } from './core/store';
 import { PALETTES } from './visual/settings';
@@ -180,6 +181,20 @@ const unlock = () => {
 };
 window.addEventListener('pointerdown', unlock, true);
 window.addEventListener('keydown', unlock, true);
+
+// Real (sampled) instruments stream in on demand: say so while they download, and once if they can't.
+{
+  let wasLoading = false;
+  let warned = false;
+  onSampleStatus(({ loading, failed }) => {
+    if (loading > 0 && !wasLoading) toast('Loading real instruments…', 'info', 1800);
+    wasLoading = loading > 0;
+    if (failed && !warned) {
+      warned = true;
+      toast("Couldn't download some real-instrument samples (offline?). Using synth stand-ins.", 'error', 5000);
+    }
+  });
+}
 
 installKeyboard(store, engine, editor, actions, toggleMax);
 

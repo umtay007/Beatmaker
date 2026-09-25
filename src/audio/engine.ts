@@ -4,6 +4,7 @@ import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types'
 import { loadKit } from './drums';
 import { buildEvents, Graph, graphLatency, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
 import type { Voice } from './instruments';
+import { ensureSongSamples } from './samples';
 import { peakEnvelope } from './tempo';
 
 const LOOKAHEAD = 0.14;
@@ -101,7 +102,18 @@ export class AudioEngine {
     return this.ctx;
   }
 
-  ensureKits(): Promise<void> {
+  /**
+   * Load drum kits and the recorded samples the song uses. Live playback waits at most a few
+   * seconds for samples (a stand-in synth covers the rest); exports wait for everything.
+   */
+  ensureKits(sampleWait = 4): Promise<void> {
+    if (!this.ctx) return Promise.resolve();
+    const samples = ensureSongSamples(this.song.tracks);
+    const waitSamples = sampleWait === Infinity ? samples : Promise.race([samples, new Promise<void>((r) => setTimeout(r, sampleWait * 1000))]);
+    return Promise.all([this.loadKits(), waitSamples]).then(() => undefined);
+  }
+
+  private loadKits(): Promise<void> {
     if (!this.ctx) return Promise.resolve();
     const rate = this.ctx.sampleRate;
     const ids = new Set(this.song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument));

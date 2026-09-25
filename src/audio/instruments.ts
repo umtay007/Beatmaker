@@ -1,4 +1,5 @@
 import { midiToFreq } from '../core/theory';
+import { playSample, SAMPLED } from './samples';
 
 /**
  * Melodic instruments, synthesized in real time from oscillators, filters and envelopes.
@@ -21,10 +22,16 @@ export interface Voice {
   kill(t: number): void;
 }
 
+/** Instrument families, in the order the instrument menu lists them. */
+export const GROUPS = ['Keys', 'Guitar', 'Strings', 'Brass', 'Woodwind', 'Bass', 'Pluck', 'Mallet', 'Bell', 'Pad', 'Lead', 'Vocal'] as const;
+export type InstrumentGroup = (typeof GROUPS)[number];
+
 export interface InstrumentDef {
   id: string;
   label: string;
-  group: 'Bass' | 'Keys' | 'Pluck' | 'Pad' | 'Lead' | 'Bell';
+  group: InstrumentGroup;
+  /** Recorded samples streamed on demand (see samples.ts). */
+  sampled?: boolean;
   mono?: boolean;
   /** Default octave for new notes (C of this octave = 12 * (octave + 1)). */
   octave: number;
@@ -439,7 +446,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'marimba',
     label: 'Marimba',
-    group: 'Pluck',
+    group: 'Mallet',
     octave: 4,
     build(ctx, out, a) {
       const v = new VoiceKit(ctx, out, a, 0.06);
@@ -544,7 +551,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'strings',
     label: 'Strings',
-    group: 'Pad',
+    group: 'Strings',
     octave: 4,
     build(ctx, out, a) {
       const v = new VoiceKit(ctx, out, a, 0.3);
@@ -563,7 +570,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'darkstrings',
     label: 'Dark Strings (wide)',
-    group: 'Pad',
+    group: 'Strings',
     octave: 4,
     build(ctx, out, a) {
       // Warm, very wide string pad: detuned saw pairs hard left / right through soft low-pass filters.
@@ -599,7 +606,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'choir',
     label: 'Choir',
-    group: 'Pad',
+    group: 'Vocal',
     octave: 4,
     build(ctx, out, a) {
       const v = new VoiceKit(ctx, out, a, 0.35);
@@ -662,7 +669,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'flute',
     label: 'Flute',
-    group: 'Lead',
+    group: 'Woodwind',
     octave: 5,
     build(ctx, out, a) {
       const v = new VoiceKit(ctx, out, a, 0.09);
@@ -704,7 +711,7 @@ export const INSTRUMENTS: InstrumentDef[] = [
   {
     id: 'brass',
     label: 'Brass',
-    group: 'Lead',
+    group: 'Brass',
     octave: 4,
     build(ctx, out, a) {
       const v = new VoiceKit(ctx, out, a, 0.08);
@@ -775,6 +782,21 @@ export const INSTRUMENTS: InstrumentDef[] = [
     },
   },
 ];
+
+// Real, recorded instruments. While a sample downloads (or offline) a synth stand-in plays.
+for (const def of SAMPLED) {
+  INSTRUMENTS.push({
+    id: def.id,
+    label: def.label,
+    group: def.group as InstrumentGroup,
+    sampled: true,
+    mono: def.mono,
+    octave: def.octave,
+    build(ctx, out, a) {
+      return playSample(ctx, out, def, a) ?? instrumentFor(def.fallback).build(ctx, out, a);
+    },
+  });
+}
 
 export const INSTRUMENT_BY_ID = new Map(INSTRUMENTS.map((i) => [i.id, i]));
 

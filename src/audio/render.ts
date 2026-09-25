@@ -2,6 +2,7 @@ import { Timeline } from '../core/timing';
 import type { Song } from '../core/types';
 import { loadKit } from './drums';
 import { buildEvents, Graph, graphLatency, NoteScheduler, type KitBuffers } from './graph';
+import { ensureSongSamples } from './samples';
 
 export interface RenderOptions {
   from: number;
@@ -24,6 +25,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const graph = new Graph(ctx);
   graph.applyMix(song, false);
   graph.out.connect(ctx.destination);
+  await ensureSongSamples(song.tracks);
   const kits: KitBuffers = new Map();
   for (const id of new Set(song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument))) {
     kits.set(id, await loadKit(id, sr));

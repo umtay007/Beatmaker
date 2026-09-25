@@ -74,6 +74,7 @@ export function exportVideo(
     if (!fmt) throw new Error('Video recording is not supported in this browser.');
     await engine.unlock();
     if (!engine.streamDest) throw new Error('Audio capture is not supported in this browser.');
+    await engine.ensureKits(Infinity); // every recorded sample must be ready before recording starts
     if (cancelled) return null;
     engine.stop();
     engine.exportMode = true;

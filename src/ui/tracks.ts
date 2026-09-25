@@ -1,6 +1,6 @@
 import type { AudioEngine } from '../audio/engine';
 import { KIT_BY_ID, KITS } from '../audio/drums';
-import { INSTRUMENT_BY_ID, INSTRUMENTS } from '../audio/instruments';
+import { GROUPS, INSTRUMENT_BY_ID, INSTRUMENTS } from '../audio/instruments';
 import type { Store } from '../core/store';
 import { newNoteId, newTrackId, type Track } from '../core/types';
 import { PALETTES } from '../visual/settings';
@@ -13,13 +13,12 @@ export function instrumentLabel(t: Track): string {
 export function instrumentOptions(kind: Track['kind']): [string, string][] {
   if (kind === 'drums') return KITS.map((k) => [k.id, k.label]);
   const out: [string, string][] = [];
-  let group = '';
-  for (const i of INSTRUMENTS) {
-    if (i.group !== group) {
-      group = i.group;
-      out.push([`group:${group}`, group]);
-    }
-    out.push([i.id, i.label]);
+  for (const group of GROUPS) {
+    const list = INSTRUMENTS.filter((i) => i.group === group);
+    if (!list.length) continue;
+    out.push([`group:${group}`, group]);
+    // Real (sampled) instruments first in each family.
+    for (const i of [...list.filter((x) => x.sampled), ...list.filter((x) => !x.sampled)]) out.push([i.id, i.sampled ? `${i.label} · real` : i.label]);
   }
   return out;
 }
