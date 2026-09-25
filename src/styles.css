@@ -1278,6 +1278,10 @@ button {
   margin: 0 0 12px;
 }
 
+.modal p.modal-warn {
+  color: var(--danger);
+}
+
 .progress {
   height: 8px;
   border-radius: 8px;

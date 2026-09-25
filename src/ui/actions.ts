@@ -34,6 +34,12 @@ export interface GenerateChoice {
   bpm: number | null;
 }
 
+/** Say an export finished, and whether synth stand-ins replaced recordings that didn't download. */
+function exportedToast(msg: string, missing: string[]): void {
+  if (missing.length) toast(`${msg}, with synth stand-ins for ${missing.join(', ')}`, 'error', 8000);
+  else toast(msg, 'ok', 4000);
+}
+
 /** App-level commands shared by the top bar, inspector, keyboard shortcuts and drag & drop. */
 export class Actions {
   lastGenre = 'trap';
@@ -315,10 +321,10 @@ export class Actions {
     const body = h('div', null, h('p', null, 'Rendering audio…'), h('div', { class: 'progress' }, h('div', { style: { width: '60%' } })));
     const m = modal('Export WAV', body, { closable: false });
     try {
-      await this.checkSamples(song.tracks);
+      const missing = await this.checkSamples(song.tracks);
       const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer, backingVolume: this.engine.backingVolume });
       m.close();
-      if (await downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`)) toast('WAV exported', 'ok');
+      if (await downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`)) exportedToast('WAV exported', missing);
     } catch (e) {
       toast(`Render failed: ${(e as Error).message}`, 'error', 4000);
     } finally {
@@ -353,7 +359,7 @@ export class Actions {
     const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Track';
     try {
       const files: { name: string; data: Blob }[] = [];
-      await this.checkSamples(song.tracks);
+      const missing = await this.checkSamples(song.tracks);
       files.push({ name: '00 Full mix.wav', data: encodeWav(await renderSong(song, { from, to, tail: 2 })) });
       for (const [i, t] of tracks.entries()) {
         if (cancelled) break;
@@ -376,7 +382,7 @@ export class Actions {
       bar.style.width = '100%';
       const zip = await zipFiles(files);
       m.close();
-      if (await downloadBlob(zip, `${safeName(song.name)}-stems.zip`)) toast(`Exported ${tracks.length} stems + the full mix`, 'ok', 4000);
+      if (await downloadBlob(zip, `${safeName(song.name)}-stems.zip`)) exportedToast(`Exported ${tracks.length} stems + the full mix`, missing);
     } catch (e) {
       toast(`Stem export failed: ${(e as Error).message}`, 'error', 5000);
     } finally {
@@ -567,9 +573,10 @@ export class Actions {
    * Before an export: load every recorded instrument the song uses, retrying failed downloads,
    * and say which (if any) will fall back to a synth stand-in, rather than export it silently.
    */
-  private async checkSamples(tracks: Track[]): Promise<void> {
+  private async checkSamples(tracks: Track[]): Promise<string[]> {
     const missing = await ensureSongSamplesStrict(tracks.filter((t) => !t.mute));
     if (missing.length) toast(`Couldn't download the recorded ${missing.join(', ')} (offline?): the export uses synth stand-ins for ${missing.length === 1 ? 'it' : 'them'}.`, 'error', 6000);
+    return missing;
   }
 
   async exportVideo(): Promise<void> {
@@ -593,7 +600,9 @@ export class Actions {
     );
     const m = modal('Export video', body, { closable: false });
     status.textContent = 'Loading recorded sounds…';
-    await this.checkSamples(this.store.song.tracks);
+    const missing = await this.checkSamples(this.store.song.tracks);
+    // The recording takes as long as the song: keep the warning in view, not just in a toast.
+    if (missing.length) body.insertBefore(h('p', { class: 'modal-warn' }, `Synth stand-ins for ${missing.join(', ')}: their recordings couldn't be downloaded.`), cancelBtn);
     const job = exportVideo(this.store, this.engine, this.player, (p, pos, total) => {
       bar.style.width = `${Math.round(p * 100)}%`;
       status.textContent = `${pos.toFixed(1)}s / ${total.toFixed(1)}s`;
@@ -603,7 +612,7 @@ export class Actions {
       const res = await job.done;
       if (res) {
         m.close();
-        if (await downloadBlob(res.blob, `${safeName(this.store.song.name)}.${res.ext}`)) toast(`Video exported (${(res.blob.size / 1e6).toFixed(1)} MB)`, 'ok', 4000);
+        if (await downloadBlob(res.blob, `${safeName(this.store.song.name)}.${res.ext}`)) exportedToast(`Video exported (${(res.blob.size / 1e6).toFixed(1)} MB)`, missing);
       } else toast('Export cancelled');
     } catch (e) {
       toast(`Export failed: ${(e as Error).message}`, 'error', 5000);
