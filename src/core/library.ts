@@ -48,9 +48,15 @@ function run<T>(store: StoreName, mode: IDBTransactionMode, op: (s: IDBObjectSto
       new Promise<T | undefined>((resolve) => {
         if (!db) return resolve(undefined);
         try {
-          const req = op(db.transaction(store, mode).objectStore(store));
-          req.onsuccess = () => resolve(req.result as T);
-          req.onerror = () => resolve(undefined);
+          const tx = db.transaction(store, mode);
+          const req = op(tx.objectStore(store));
+          let result: T | undefined;
+          req.onsuccess = () => (result = req.result as T);
+          // Only a completed transaction is stored: a write can still abort after the request
+          // succeeds (a full disk reports QuotaExceededError that way).
+          tx.oncomplete = () => resolve(result);
+          tx.onabort = () => resolve(undefined);
+          tx.onerror = () => resolve(undefined);
         } catch {
           resolve(undefined);
         }

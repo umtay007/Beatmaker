@@ -5,6 +5,7 @@ import { getKit, getStoredFile, putFileWithId, putKit, type UserKit } from '../c
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { loadSamplerFile } from '../audio/sampler';
+import { ensureSongSamplesStrict } from '../audio/samples';
 import { drumNotes, splitParts } from '../audio/parts';
 import { drumGrid, transcribePitches } from '../audio/transcribe';
 import { detectAudioKey } from '../audio/key';
@@ -314,6 +315,7 @@ export class Actions {
     const body = h('div', null, h('p', null, 'Rendering audio…'), h('div', { class: 'progress' }, h('div', { style: { width: '60%' } })));
     const m = modal('Export WAV', body, { closable: false });
     try {
+      await this.checkSamples(song.tracks);
       const buf = await renderSong(song, { from, to, tail: 2, backing: this.engine.backingBuffer, backingVolume: this.engine.backingVolume });
       m.close();
       if (await downloadBlob(encodeWav(buf), `${safeName(song.name)}.wav`)) toast('WAV exported', 'ok');
@@ -351,6 +353,7 @@ export class Actions {
     const fileName = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Track';
     try {
       const files: { name: string; data: Blob }[] = [];
+      await this.checkSamples(song.tracks);
       files.push({ name: '00 Full mix.wav', data: encodeWav(await renderSong(song, { from, to, tail: 2 })) });
       for (const [i, t] of tracks.entries()) {
         if (cancelled) break;
@@ -558,6 +561,15 @@ export class Actions {
     return changes;
   }
 
+  /**
+   * Before an export: load every recorded instrument the song uses, retrying failed downloads,
+   * and say which (if any) will fall back to a synth stand-in, rather than export it silently.
+   */
+  private async checkSamples(tracks: Track[]): Promise<void> {
+    const missing = await ensureSongSamplesStrict(tracks.filter((t) => !t.mute));
+    if (missing.length) toast(`Couldn't download the recorded ${missing.join(', ')} (offline?): the export uses synth stand-ins for ${missing.length === 1 ? 'it' : 'them'}.`, 'error', 6000);
+  }
+
   async exportVideo(): Promise<void> {
     if (this.exporting) return;
     const fmt = pickFormat(this.store.visual.exportFormat);
@@ -578,6 +590,8 @@ export class Actions {
       cancelBtn,
     );
     const m = modal('Export video', body, { closable: false });
+    status.textContent = 'Loading recorded sounds…';
+    await this.checkSamples(this.store.song.tracks);
     const job = exportVideo(this.store, this.engine, this.player, (p, pos, total) => {
       bar.style.width = `${Math.round(p * 100)}%`;
       status.textContent = `${pos.toFixed(1)}s / ${total.toFixed(1)}s`;

@@ -427,7 +427,7 @@ export class Inspector {
         h(
           'div',
           { class: 'btn-row' },
-          h('button', { class: 'btn', onclick: () => a.pickAndOpen('.json,application/json') }, icon('file', 15), 'Open project'),
+          h('button', { class: 'btn', onclick: () => a.pickAndOpen('.json,application/json,.zip,application/zip') }, icon('file', 15), 'Open project'),
           h('button', { class: 'btn', onclick: () => a.saveProject() }, icon('download', 15), 'Save project'),
           h('button', { class: 'btn', onclick: () => a.pickAndOpen('.mid,.midi,audio/midi') }, icon('upload', 15), 'Import MIDI'),
           h('button', { class: 'btn', onclick: () => a.exportMidi() }, icon('download', 15), 'Export MIDI'),
@@ -706,7 +706,7 @@ export class Inspector {
           h('button', { class: 'btn', onclick: () => a.exportStems(), title: 'A WAV per track plus the full mix, in a ZIP' }, icon('wave', 15), 'Export stems'),
           h('button', { class: 'btn', onclick: () => a.exportMidi() }, icon('music', 15), 'Export MIDI'),
           h('button', { class: 'btn', onclick: () => a.saveProject() }, icon('download', 15), 'Save project'),
-          h('button', { class: 'btn', onclick: () => a.pickAndOpen('.json,application/json') }, icon('file', 15), 'Open project'),
+          h('button', { class: 'btn', onclick: () => a.pickAndOpen('.json,application/json,.zip,application/zip') }, icon('file', 15), 'Open project'),
         ),
       ]),
     );

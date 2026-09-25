@@ -24,7 +24,8 @@ result as an MP4 or WebM video.
   - **20 real, sampled instruments**: grand piano, pipe organ, harmonium, acoustic, nylon and clean
     electric guitar, electric and upright bass, violin, cello, harp, trumpet, trombone, French horn,
     tuba, saxophone, flute, clarinet, bassoon and xylophone. Only the notes a song uses are
-    downloaded; offline, a matching synth stands in.
+    downloaded; offline, a matching synth stands in, and exports retry the download first and
+    warn you which instruments would still use a stand-in.
   - **Physically modelled plucked strings**: koto, sitar (with its buzzing bridge), pizzicato strings.
   - **Mallets and bells**: kalimba, marimba, vibraphone, steel drum, music box, celesta, tubular
     bells, bell and glockenspiel.

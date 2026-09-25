@@ -452,7 +452,7 @@ export class AudioEngine {
       return null;
     }
     if (track.kind === 'drums' && !this.kits.has(track.instrument)) void this.ensureKits();
-    return this.sched.play(track, pitch, vel, this.ctx.currentTime + 0.005, null);
+    return this.sched.play(track, pitch, vel, this.ctx.currentTime + 0.005, null, undefined, true);
   }
 
   preview(track: Track, pitch: number, vel = 0.8, dur = 0.28): void {
@@ -462,10 +462,10 @@ export class AudioEngine {
     }
     if (track.kind === 'drums' && !this.kits.has(track.instrument)) {
       // Don't hold a preview back for a download: a stand-in voice is fine for a click.
-      void this.ensureKits(0).then(() => this.sched?.play(track, pitch, vel, this.ctx!.currentTime + 0.005, dur));
+      void this.ensureKits(0).then(() => this.sched?.play(track, pitch, vel, this.ctx!.currentTime + 0.005, dur, undefined, true));
       return;
     }
-    this.sched.play(track, pitch, vel, this.ctx.currentTime + 0.005, dur);
+    this.sched.play(track, pitch, vel, this.ctx.currentTime + 0.005, dur, undefined, true);
   }
 
   /** Low-frequency energy 0..1 for audio-reactive visuals. */

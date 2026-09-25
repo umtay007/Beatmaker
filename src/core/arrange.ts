@@ -3,7 +3,8 @@
  * lives on the timeline with them (notes, automation, section markers, tempo changes, the loop).
  * They mutate the song in place, so call them inside store.update() for one undo step.
  */
-import { BAR, MAX_BARS, newNoteId, type Section, type Song } from './types';
+import { AUTO_BY_ID, valueAt } from './automation';
+import { BAR, MAX_BARS, newNoteId, type AutoParam, type Section, type Song } from './types';
 
 /** Section names offered in menus. */
 export const SECTION_NAMES = ['Intro', 'Verse', 'Pre-hook', 'Hook', 'Bridge', 'Breakdown', 'Drop', 'Outro'];
@@ -68,18 +69,32 @@ export function deleteBars(song: Song, from: number, to: number): number {
   for (const t of song.tracks) {
     t.notes = t.notes.filter((x) => x.start < a || x.start >= end);
     for (const x of t.notes) if (x.start < a && x.start + x.dur > a) x.dur = a - x.start;
-    for (const k of Object.keys(t.automation ?? {}) as (keyof NonNullable<typeof t.automation>)[]) {
-      const pts = t.automation![k]!.filter((p) => p.tick < a || p.tick >= end);
+    for (const k of Object.keys(t.automation ?? {}) as AutoParam[]) {
+      const all = t.automation![k]!;
+      const pts = all.filter((p) => p.tick < a || p.tick >= end);
+      // The lane carries on from the cut at the value it had at the cut's end.
+      if (pts.length !== all.length && !pts.some((p) => p.tick === end)) pts.push({ tick: end, value: valueAt(AUTO_BY_ID.get(k)!, all, end) });
+      pts.sort((x, y) => x.tick - y.tick);
       if (pts.length) t.automation![k] = pts;
       else delete t.automation![k];
     }
   }
+  // Likewise the tempo: the one in force at the cut's end carries on from the cut.
+  const cutTempo = song.tempoChanges.filter((c) => c.tick >= a && c.tick < end);
+  const carriedTempo = cutTempo.length && !song.tempoChanges.some((c) => c.tick === end) ? cutTempo[cutTempo.length - 1].bpm : null;
   // A section whose start is deleted but which carries on past the cut starts at the cut instead.
   const cutSections = (song.sections ?? []).filter((s) => s.tick >= a && s.tick < end);
   const carried = cutSections.length ? cutSections[cutSections.length - 1] : null;
   if (song.sections) song.sections = song.sections.filter((s) => s.tick < a || s.tick >= end);
   song.tempoChanges = song.tempoChanges.filter((c) => c.tick < a || c.tick >= end);
   shiftFrom(song, end, -len);
+  if (carriedTempo !== null) {
+    if (a === 0) song.bpm = carriedTempo;
+    else {
+      song.tempoChanges.push({ tick: a, bpm: carriedTempo });
+      song.tempoChanges.sort((x, y) => x.tick - y.tick);
+    }
+  }
   if (carried && !(song.sections ?? []).some((s) => s.tick === a) && a < (song.bars - n) * BAR) {
     (song.sections ??= []).push({ tick: a, name: carried.name });
     song.sections.sort((x, y) => x.tick - y.tick);

@@ -332,6 +332,40 @@ export function ensureSongSamples(tracks: { kind: string; instrument: string; tu
   return Promise.all(jobs).then(() => undefined);
 }
 
+/**
+ * Instruments whose recordings for these tracks' notes aren't loaded (a download failed): they
+ * would play a synth stand-in. Returns their labels.
+ */
+export function missingSamples(tracks: { kind: string; instrument: string; tune?: number; notes: { pitch: number }[] }[]): string[] {
+  const out = new Set<string>();
+  for (const t of tracks) {
+    const def = t.kind === 'synth' ? SAMPLED_BY_ID.get(t.instrument) : undefined;
+    if (!def) continue;
+    const shift = (t.tune ?? 0) / 100;
+    for (const n of t.notes) {
+      if (!buffers.has(def.id + '/' + nearest(def, Math.round(n.pitch + shift)).name)) {
+        out.add(def.label);
+        break;
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * For exports: load every recording the song needs, retrying failed downloads a few times.
+ * Resolves with the instruments still missing (they will use synth stand-ins).
+ */
+export async function ensureSongSamplesStrict(tracks: Parameters<typeof missingSamples>[0], attempts = 3): Promise<string[]> {
+  for (let i = 0; i < attempts; i++) {
+    await ensureSongSamples(tracks);
+    const missing = missingSamples(tracks);
+    if (!missing.length) return [];
+    await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+  }
+  return missingSamples(tracks);
+}
+
 /** Whether any sample download has failed (offline, blocked). */
 export function samplesUnavailable(): boolean {
   return failed;

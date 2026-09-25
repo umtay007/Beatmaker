@@ -141,6 +141,8 @@ export function playSampler(ctx: BaseAudioContext, out: AudioNode, s: SamplerSet
   src.buffer = buf;
   src.playbackRate.value = rate;
   const g = ctx.createGain();
+  // Silent until the note starts, so a ramp scheduled before any other event starts from 0.
+  g.gain.value = 0;
   const level = Math.pow(Math.max(0.05, a.vel), 1.2) * Math.pow(10, s.gain / 20);
   const t = a.time;
   const atk = Math.max(0.002, s.attack);
@@ -154,27 +156,33 @@ export function playSampler(ctx: BaseAudioContext, out: AudioNode, s: SamplerSet
     src.start(t, offset);
   } else src.start(t, offset, length);
   const playEnd = loop ? Infinity : t + length / rate;
-  /** When the fade-out starts, once one is scheduled. */
+  // The fade-out scheduled so far (none yet), for continuing the envelope from where it is.
   let fadeAt = Infinity;
+  let fadeEnd = Infinity;
+  let fadeFrom = level;
+  /** The envelope's level at a time: attack ramp, sustain, then any fade already scheduled. */
+  const envAt = (time: number): number => {
+    if (time <= t || time >= fadeEnd) return 0;
+    if (time >= fadeAt) return fadeFrom * (1 - (time - fadeAt) / (fadeEnd - fadeAt));
+    if (time < t + atk) return (level * (time - t)) / atk;
+    return level;
+  };
+  /**
+   * Fade out over `fade` seconds from `when`, from whatever level the envelope has then (mid
+   * attack, sustain or an earlier, slower fade), so a stop never jumps or cuts a fade short.
+   */
   const stopAt = (when: number, fade: number) => {
-    const at = Math.max(when, t + atk);
-    if (at >= fadeAt) {
-      // Already fading out by then: just make sure it's gone quickly.
-      if (fade < 0.01) {
-        try {
-          src.stop(at + fade + 0.01);
-        } catch {
-          /* already stopped */
-        }
-      }
-      return;
-    }
-    fadeAt = at;
-    g.gain.cancelScheduledValues(at);
-    g.gain.setValueAtTime(level, at);
-    g.gain.linearRampToValueAtTime(0, at + fade);
+    if (when + fade >= fadeEnd) return; // an earlier fade already ends sooner
+    const v = envAt(when);
+    g.gain.cancelScheduledValues(when);
+    // Ramps (not setValue) keep the segment that was playing up to `when` intact.
+    g.gain.linearRampToValueAtTime(v, when);
+    g.gain.linearRampToValueAtTime(0, when + fade);
+    fadeAt = when;
+    fadeEnd = when + fade;
+    fadeFrom = v;
     try {
-      src.stop(at + fade + 0.01);
+      src.stop(when + fade + 0.01);
     } catch {
       /* already stopped */
     }

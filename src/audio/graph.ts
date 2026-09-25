@@ -272,27 +272,30 @@ export class Graph {
         if (autoTick === null) return null;
         return valueAt(AUTO_DEF[id], pts, autoTick);
       };
-      // Automated params may have ramps queued ahead: clear them when setting a fixed value.
-      const put = (p: AudioParam, v: number | null, automated: boolean) => {
+      // A param may have automation ramps queued ahead (also just after its lane was cleared or
+      // undone): drop them whenever a fixed value is set, or they would win over it.
+      const put = (p: AudioParam, v: number | null) => {
         if (v === null) return;
-        if (automated && smooth) p.cancelScheduledValues(now);
+        if (smooth) p.cancelScheduledValues(now);
         set(p, v);
       };
       const vol = val('volume', t.volume);
-      if (!audible) put(b.vol.gain, 0, true);
-      else put(b.vol.gain, vol, !!auto?.volume?.length);
-      put(b.pan.pan, val('pan', t.pan), !!auto?.pan?.length);
-      put(b.send.gain, val('reverb', t.reverb), !!auto?.reverb?.length);
-      put(b.echo.gain, val('echo', t.echo ?? 0), !!auto?.echo?.length);
+      put(b.vol.gain, audible ? vol : 0);
+      put(b.pan.pan, val('pan', t.pan));
+      put(b.send.gain, val('reverb', t.reverb));
+      put(b.echo.gain, val('echo', t.echo ?? 0));
       const hpf = val('hpf', t.hpf ?? HPF_OFF);
       const lpf = val('lpf', t.lpf ?? LPF_OFF);
+      // Open filters are exact pass-throughs: 0 Hz high-pass, Nyquist low-pass (automated ones
+      // use 1 Hz, as their exponential ramps can't reach 0).
       if (hpf !== null) {
-        if (hpf <= HPF_OFF && !auto?.hpf?.length) snap(b.hp.frequency, 0);
-        else put(b.hp.frequency, hpf, !!auto?.hpf?.length);
+        if (hpf > HPF_OFF) put(b.hp.frequency, hpf);
+        else if (auto?.hpf?.length) put(b.hp.frequency, 1);
+        else snap(b.hp.frequency, 0);
       }
       if (lpf !== null) {
-        if (lpf >= LPF_OFF && !auto?.lpf?.length) snap(b.lp.frequency, nyquist);
-        else put(b.lp.frequency, Math.min(lpf, nyquist), !!auto?.lpf?.length);
+        if (lpf < LPF_OFF) put(b.lp.frequency, Math.min(lpf, nyquist));
+        else snap(b.lp.frequency, nyquist);
       }
       set(b.lp.Q, -3 + (t.res ?? 0) * 19);
       set(b.low.gain, t.eqLow ?? 0);
@@ -346,7 +349,13 @@ export class Graph {
     const t1 = tl.secToTick(to);
     for (const [def, pts] of lanes(track)) {
       const p = this.autoParam(b, def.id);
-      const map = (v: number) => (def.id === 'volume' ? (audible ? v : 0) : def.id === 'lpf' ? Math.min(v, nyquist) : v);
+      const map = (v: number) => {
+        if (def.id === 'volume') return audible ? v : 0;
+        // "Open" is transparent: Nyquist for the high cut, 1 Hz for the low cut.
+        if (def.id === 'lpf') return v >= LPF_OFF ? nyquist : Math.min(v, nyquist);
+        if (def.id === 'hpf') return v <= HPF_OFF ? 1 : v;
+        return v;
+      };
       const ramp = (v: number, at: number) => {
         if (def.log) p.exponentialRampToValueAtTime(Math.max(1, map(v)), at);
         else p.linearRampToValueAtTime(map(v), at);
@@ -446,7 +455,8 @@ export class NoteScheduler {
   ) {}
 
   /** Schedule one event at absolute context time `at`, for `dur` seconds. */
-  play(track: Track, pitch: number, vel: number, at: number, dur: number | null, glideFrom?: number): Voice | null {
+  /** `live`: a key or pad played by hand (or a preview), which must not disturb queued ducking. */
+  play(track: Track, pitch: number, vel: number, at: number, dur: number | null, glideFrom?: number, live = false): Voice | null {
     const ctx = this.graph.ctx;
     const bus = this.graph.bus(track);
     if (track.kind === 'drums') {
@@ -458,7 +468,8 @@ export class NoteScheduler {
       g.gain.value = Math.pow(Math.max(0.05, vel), 1.2);
       src.connect(g).connect(bus.input);
       src.start(at);
-      if (KICKS.has(pitch) && !track.mute) this.graph.duckAt(track.id, at, vel);
+      // Ducking follows the song's kicks; a kick played by hand would cancel the dips queued ahead.
+      if (KICKS.has(pitch) && !track.mute && !live) this.graph.duckAt(track.id, at, vel);
       // Closed hat chokes a ringing open hat.
       if (pitch === 42 || pitch === 46) {
         const prev = this.openHats.get(track.id);
