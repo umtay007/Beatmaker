@@ -115,6 +115,14 @@ function recorded(def: SampledDef): Recorded[] {
   return r;
 }
 
+/** The lowest and highest recorded notes of a sampled instrument (MIDI), or null if it isn't one. */
+export function recordedRange(id: string): [number, number] | null {
+  const def = SAMPLED_BY_ID.get(id);
+  if (!def) return null;
+  const r = recorded(def);
+  return r.length ? [r[0].pitch, r[r.length - 1].pitch] : null;
+}
+
 /** The recorded note closest to `pitch`. */
 export function nearest(def: SampledDef, pitch: number): Recorded {
   const r = recorded(def);

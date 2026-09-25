@@ -31,6 +31,8 @@ export class AudioEngine {
   kits: KitBuffers = new Map();
   backingBuffer: AudioBuffer | null = null;
   backingName = '';
+  /** The reference split into parts (drums, bass, other, vocals), once separated. */
+  stems: Partial<Record<'drums' | 'bass' | 'other' | 'vocals', AudioBuffer>> | null = null;
   /** Peak envelope of the backing audio (200 values per second) for waveform drawing. */
   backingPeaks: Float32Array | null = null;
   private backingVol = 0.9;
@@ -438,6 +440,7 @@ export class AudioEngine {
     const data = await file.arrayBuffer();
     const buf = await ctx.decodeAudioData(data);
     this.backingBuffer = buf;
+    this.stems = null;
     this.backingName = file.name;
     this.backingPeaks = peakEnvelope(buf);
     this.meter?.reset();
@@ -449,6 +452,7 @@ export class AudioEngine {
   clearBacking(): void {
     if (this.ctx) this.stopBacking(this.ctx.currentTime);
     this.backingBuffer = null;
+    this.stems = null;
     this.backingName = '';
     this.backingPeaks = null;
     this.ab = 'off';

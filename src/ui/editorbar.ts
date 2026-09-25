@@ -1,3 +1,4 @@
+import { showFinder } from './finderui';
 import { fxShape } from '../audio/trackfx';
 import { KITS } from '../audio/drums';
 import type { AudioEngine } from '../audio/engine';
@@ -153,6 +154,10 @@ export class EditorBar {
       { class: 'editor-bar' },
       this.title,
       this.inst,
+      h('button', { class: 'icon-btn', title: 'Find the instrument that sounds most like the original (needs the original loaded as a reference)', 'aria-label': 'Find the instrument', onclick: () => {
+        const t = store.track;
+        if (t) showFinder(store, engine, t.id);
+      } }, icon('search', 16)),
       this.sample,
       h('div', { class: 'divider' }),
       h('span', { class: 'lbl hide-md' }, 'Grid'),

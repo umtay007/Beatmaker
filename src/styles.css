@@ -1845,3 +1845,65 @@ button {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Instrument finder */
+.finder-opts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.finder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.finder-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 90px auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1px solid transparent;
+}
+
+.finder-row.on {
+  border-color: var(--accent);
+}
+
+.finder-rank {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.finder-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.finder-name small {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.finder-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.finder-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
