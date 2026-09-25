@@ -98,7 +98,8 @@ result as an MP4 or WebM video.
   You can export the whole song or just the loop, with lead-in and tail.
 - **Export WAV** (rendered offline, sample-aligned to the grid), **export stems** (a WAV per track
   plus the full mix, in a ZIP; stems skip the master compressor so they add up to the mix), **export MIDI**, and save or open
-  projects as `.json`.
+  projects as `.json`. A project that uses your own sounds (drum packs, sampler sounds) saves as a
+  `.zip` with those sounds inside, so it opens with them in any browser.
 
 ## Getting started
 

@@ -112,7 +112,7 @@ export function installKeyboard(store: Store, engine: AudioEngine, editor: Edito
         editor.duplicate();
       } else if (key === 's') {
         e.preventDefault();
-        actions.saveProject();
+        void actions.saveProject();
       }
       return;
     }

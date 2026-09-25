@@ -58,9 +58,10 @@ function run<T>(store: StoreName, mode: IDBTransactionMode, op: (s: IDBObjectSto
   );
 }
 
+/** Save to IndexedDB, or keep it in memory for the session when that fails. */
 async function put(store: StoreName, value: { id: string }): Promise<void> {
-  memory[store].set(value.id, value);
-  await run(store, 'readwrite', (s) => s.put(value));
+  const key = await run<IDBValidKey>(store, 'readwrite', (s) => s.put(value));
+  if (key === undefined) memory[store].set(value.id, value);
 }
 
 async function get<T>(store: StoreName, id: string): Promise<T | undefined> {
@@ -88,10 +89,22 @@ export async function putFile(name: string, data: ArrayBuffer): Promise<string> 
   return id;
 }
 
+/** Store a sound under a known id (restoring a project bundle); a sound already there is kept. */
+export async function putFileWithId(id: string, name: string, data: ArrayBuffer): Promise<void> {
+  if (await get<StoredFile>('files', id)) return;
+  const file: StoredFile = { id, name, data };
+  await put('files', file);
+}
+
+export function getStoredFile(id: string): Promise<StoredFile | undefined> {
+  return get<StoredFile>('files', id);
+}
+
+/** A sound's bytes: always a fresh copy (decodeAudioData detaches the buffer it is given). */
 export async function getFile(id: string): Promise<ArrayBuffer> {
   const f = await get<StoredFile>('files', id);
   if (!f) throw new Error('That sound is not in this browser any more');
-  return f.data;
+  return memory.files.has(id) ? f.data.slice(0) : f.data;
 }
 
 export function listKits(): Promise<UserKit[]> {
@@ -102,6 +115,15 @@ export async function saveKit(name: string, files: Record<number, string>): Prom
   const kit: UserKit = { id: rid('u'), name, files, created: Date.now() };
   await put('kits', kit);
   return kit;
+}
+
+export function getKit(id: string): Promise<UserKit | undefined> {
+  return get<UserKit>('kits', id);
+}
+
+/** Save a pack under its own id (restoring a project bundle). */
+export async function putKit(kit: UserKit): Promise<void> {
+  await put('kits', kit);
 }
 
 /** Delete a pack and the sounds only it used. */

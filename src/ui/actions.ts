@@ -1,5 +1,7 @@
 import { analyzeSound, beatPhase, EQ_BANDS, matchGains, mixStats, pumpDip, type SoundReport } from '../audio/analyze';
-import { KIT_BY_ID } from '../audio/drums';
+import { KIT_BY_ID, registerKit } from '../audio/drums';
+import { userKitDef } from '../audio/packs';
+import { getKit, getStoredFile, putFileWithId, putKit, type UserKit } from '../core/library';
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { loadSamplerFile } from '../audio/sampler';
@@ -17,7 +19,7 @@ import type { VisualPlayer } from '../visual/player';
 import { mergeVisual, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
 import { downloadBlob, h, modal, pickFile, safeName, toast } from './dom';
 import { showPackLoader } from './packs';
-import { zipFiles } from './zip';
+import { readZip, zipFiles } from './zip';
 
 const SCALES_7 = new Set(['minor', 'major', 'dorian', 'phrygian', 'harmonic', 'mixolydian', 'lydian']);
 
@@ -164,27 +166,32 @@ export class Actions {
 
   async importProjectFile(file: File): Promise<void> {
     try {
-      const data = JSON.parse(await file.text()) as { format?: string; song?: unknown; visual?: Partial<VisualSettings> };
-      if (!data.song) throw new Error('Not a Beatmaker project');
-      this.store.loadSong(normalizeSong(data.song as never));
-      if (data.visual) this.store.replaceVisual(mergeVisual(data.visual));
-      this.engine.stop();
-      void this.engine.ensureKits();
-      const missing = this.store.song.tracks.filter((t) => t.kind === 'drums' && !KIT_BY_ID.has(t.instrument));
-      const samplers = this.store.song.tracks.filter((t) => t.instrument === 'sampler' && t.sampler);
-      const lost = (await Promise.all(samplers.map(async (t) => ((await loadSamplerFile(t.sampler!.file)) ? null : t)))).filter((t) => t !== null);
-      missing.push(...lost);
-      if (missing.length) {
-        toast(`Opened ${file.name}. ${missing.map((t) => `“${t.name}”`).join(', ')} used sounds that aren't saved in this browser (a drum pack or a sampler sound). Load them again: File → Load drum pack…, or the Sample button.`, 'info', 7000);
-      } else toast(`Opened ${file.name}`, 'ok');
+      await this.openProjectText(await file.text(), file.name);
     } catch (e) {
       toast(`Couldn't open project: ${(e as Error).message}`, 'error', 4000);
     }
   }
 
+  /** Load a project from its JSON, and say if it uses sounds this browser doesn't have. */
+  private async openProjectText(text: string, fileName: string): Promise<void> {
+    const data = JSON.parse(text) as { format?: string; song?: unknown; visual?: Partial<VisualSettings> };
+    if (!data.song) throw new Error('Not a Beatmaker project');
+    this.store.loadSong(normalizeSong(data.song as never));
+    if (data.visual) this.store.replaceVisual(mergeVisual(data.visual));
+    this.engine.stop();
+    void this.engine.ensureKits();
+    const tracks = this.store.song.tracks;
+    const missing = tracks.filter((t) => t.kind === 'drums' && !KIT_BY_ID.has(t.instrument));
+    for (const t of tracks) if (t.instrument === 'sampler' && t.sampler && !(await loadSamplerFile(t.sampler.file))) missing.push(t);
+    if (missing.length) {
+      toast(`Opened ${fileName}. ${missing.map((t) => `“${t.name}”`).join(', ')} used sounds that aren't saved in this browser (a drum pack or a sampler sound). Load them again: File → Load drum pack…, or the Sample button.`, 'info', 7000);
+    } else toast(`Opened ${fileName}`, 'ok');
+  }
+
   /** Work out what a file is from its name, MIME type or first bytes (files may have no extension). */
-  private async sniff(file: File): Promise<'midi' | 'project' | 'audio' | 'image' | 'unknown'> {
+  private async sniff(file: File): Promise<'midi' | 'project' | 'bundle' | 'audio' | 'image' | 'unknown'> {
     const name = file.name.toLowerCase();
+    if (/\.zip$/.test(name)) return 'bundle';
     if (/\.(mid|midi|kar)$/.test(name)) return 'midi';
     if (/\.json$/.test(name)) return 'project';
     if (file.type.startsWith('audio/') || file.type.startsWith('video/') || /\.(mp3|wav|m4a|ogg|oga|flac|aac|opus|webm|mp4|aif|aiff)$/.test(name)) return 'audio';
@@ -198,6 +205,7 @@ export class Actions {
     if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio'; // MPEG / AAC frame sync
     if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'audio'; // WebM / Matroska
     if (str(0, 1) === '{') return 'project';
+    if (str(0, 4) === 'PK\x03\x04') return 'bundle';
     return 'unknown';
   }
 
@@ -205,6 +213,7 @@ export class Actions {
     const kind = await this.sniff(file);
     if (kind === 'midi') return this.importMidiFile(file);
     if (kind === 'project') return this.importProjectFile(file);
+    if (kind === 'bundle') return this.importBundle(file);
     if (kind === 'image') return this.setBackgroundImage(file);
     // Audio, or unknown: let the browser's decoder decide.
     return this.importAudioFile(file, kind === 'unknown');
@@ -238,9 +247,52 @@ export class Actions {
     });
   }
 
-  saveProject(): void {
-    const data = { format: 'beatmaker', version: 1, song: this.store.song, visual: this.store.visual };
-    void downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${safeName(this.store.song.name)}.beatmaker.json`);
+  /**
+   * Save the project as .json, or, when it uses sounds that live only in this browser (drum packs,
+   * sampler sounds), as a .zip bundle with those sounds inside so it opens anywhere.
+   */
+  async saveProject(): Promise<void> {
+    const song = this.store.song;
+    const json = JSON.stringify({ format: 'beatmaker', version: 1, song, visual: this.store.visual });
+    const base = safeName(song.name);
+    const kits = (await Promise.all([...new Set(song.tracks.filter((t) => t.kind === 'drums').map((t) => t.instrument))].map(getKit))).filter((k) => k !== undefined);
+    const ids = new Set([...kits.flatMap((k) => Object.values(k.files)), ...song.tracks.filter((t) => t.instrument === 'sampler' && t.sampler).map((t) => t.sampler!.file)]);
+    const sounds = (await Promise.all([...ids].map(getStoredFile))).filter((f) => f !== undefined);
+    if (!sounds.length) {
+      void downloadBlob(new Blob([json], { type: 'application/json' }), `${base}.beatmaker.json`);
+      return;
+    }
+    const zip = await zipFiles([
+      { name: 'project.beatmaker.json', data: new Blob([json]) },
+      { name: 'sounds.json', data: new Blob([JSON.stringify({ kits, sounds: sounds.map((f) => ({ id: f.id, name: f.name })) })]) },
+      ...sounds.map((f) => ({ name: `sounds/${f.id}`, data: new Blob([f.data]) })),
+    ]);
+    if (await downloadBlob(zip, `${base}.beatmaker.zip`)) toast(`Saved with its ${sounds.length} sound${sounds.length === 1 ? '' : 's'} (.zip)`, 'ok', 3500);
+  }
+
+  /** Open a .zip bundle from saveProject: put its sounds and packs in this browser, then the song. */
+  async importBundle(file: File): Promise<void> {
+    try {
+      const files = await readZip(file);
+      const project = files.get('project.beatmaker.json');
+      if (!project) throw new Error('No Beatmaker project inside');
+      const manifest = files.get('sounds.json');
+      if (manifest) {
+        const m = JSON.parse(new TextDecoder().decode(manifest)) as { kits?: UserKit[]; sounds?: { id: string; name: string }[] };
+        for (const snd of m.sounds ?? []) {
+          const data = files.get(`sounds/${snd.id}`);
+          if (data) await putFileWithId(snd.id, snd.name, data.slice().buffer);
+        }
+        for (const k of m.kits ?? []) {
+          if (!k || typeof k.id !== 'string' || typeof k.files !== 'object') continue;
+          if (!(await getKit(k.id))) await putKit(k);
+          registerKit(userKitDef(k));
+        }
+      }
+      await this.openProjectText(new TextDecoder().decode(project), file.name);
+    } catch (e) {
+      toast(`Couldn't open the bundle: ${(e as Error).message}`, 'error', 4500);
+    }
   }
 
   exportMidi(): void {
