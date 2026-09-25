@@ -116,13 +116,16 @@ export class Actions {
       s.audioOffset = -Math.round(res.firstBeat * 1000) / 1000;
       s.key = key.key;
       s.scale = key.scale;
+      // Small offsets are within the detector's error; only retune for a clearly off-440 recording.
+      s.tuning = Math.abs(key.tuning) >= 6 ? Math.round(key.tuning) : 0;
       // Fit the song to the reference (but never cut off existing notes).
       const audioBars = Math.ceil(new Timeline(s).secToTick(buf.duration + s.audioOffset) / BAR);
       const lastNote = Math.max(0, ...s.tracks.flatMap((t) => t.notes.map((n) => n.start + n.dur)));
       s.bars = Math.min(256, Math.max(1, audioBars, Math.ceil(lastNote / BAR)));
     });
     const tip = res.bpm > 150 ? ` (half-time feel? try ${Math.round(res.bpm / 2)})` : res.bpm < 75 ? ` (double-time? try ${Math.round(res.bpm * 2)})` : '';
-    toast(`Detected ${res.bpm} BPM${tip} in ${pcName(key.key, true)} ${key.scale}${key.confidence < 0.3 ? ' (key uncertain)' : ''}`, 'ok', 6000);
+    const tuned = Math.abs(key.tuning) >= 6 ? `, tuned ${key.tuning > 0 ? '+' : ''}${Math.round(key.tuning)} cents` : '';
+    toast(`Detected ${res.bpm} BPM${tip} in ${pcName(key.key, true)} ${key.scale}${key.confidence < 0.3 ? ' (key uncertain)' : ''}${tuned}`, 'ok', 6000);
   }
 
   /** Write a starter beat in the chosen style on the current grid (tempo, key, length), keeping the reference audio. */

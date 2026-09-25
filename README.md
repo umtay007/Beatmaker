@@ -24,13 +24,16 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
   strings, choir, supersaw, synth lead, sine lead, flute, brass, chiptune, bell and glockenspiel.
 - Swing, tempo, key and scale, a loop range, a metronome, and live input from your computer
   keyboard with recording.
+- A song-wide **tuning** control (in cents) and a per-track **fine tune**, for matching recordings
+  that aren't at A = 440 Hz or an 808 that sits a little sharp.
 - A **"New part" button** that rewrites a single track in any style.
-- A mixer with volume, pan, reverb send, mute and solo for each track.
+- A mixer with volume, pan, reverb send, a tempo-synced **echo** send (1/8, dotted 1/8, 1/4
+  triplet…), mute and solo for each track. Echo and fine tune live under **FX** in the editor bar.
 
 **Remake an existing beat**
 
 - **Load the original track as a reference.** *Detect tempo, key & align grid* finds its BPM,
-  first beat and key. The waveform then appears behind the editor, so you can program the drums and
+  first beat (to the millisecond), key and tuning. The waveform then appears behind the editor, so you can program the drums and
   notes by ear while it plays. The *Shift grid* buttons (−1, −½, +½, +1 beat) fix any leftover
   offset, and *Starter beat* writes a first draft in any style on that tempo, key and length.
 - Files are recognized by their content, so downloads without an extension still open.
@@ -58,7 +61,8 @@ note of your beat as it plays, and you can export the result as an MP4 or WebM v
   Mystic Violet, Falling Keys and Club Spectrum. There are also 8 track-color palettes.
 - **Export video** as MP4 or WebM in 16:9, 9:16, 1:1 or 4:5, at 720p up to 4K and 30 or 60 fps.
   You can export the whole song or just the loop, with lead-in and tail.
-- **Export WAV** (rendered offline), **export MIDI**, and save or open projects as `.json`.
+- **Export WAV** (rendered offline, sample-aligned to the grid), **export MIDI**, and save or open
+  projects as `.json`.
 
 ## Getting started
 

@@ -254,6 +254,8 @@ export function normalizeSong(song: Partial<Song>): Song {
       volume: t.volume ?? 0.8,
       pan: t.pan ?? 0,
       reverb: t.reverb ?? 0.15,
+      echo: t.echo ?? 0,
+      tune: Math.max(-100, Math.min(100, t.tune ?? 0)),
       mute: !!t.mute,
       solo: !!t.solo,
       visible: t.visible ?? true,
@@ -262,6 +264,8 @@ export function normalizeSong(song: Partial<Song>): Song {
     loop: song.loop ?? { enabled: false, start: 0, end: (song.bars ?? 4) * 384 },
     audioOffset: song.audioOffset ?? 0,
     synthsWithAudio: song.synthsWithAudio ?? true,
+    tuning: Math.max(-100, Math.min(100, song.tuning ?? 0)),
+    echoBeats: song.echoBeats ?? 0.75,
   };
   return s;
 }

@@ -247,6 +247,35 @@ export class Inspector {
           help: 'Delays every second 16th note for a shuffled groove',
         }),
       ),
+      this.bind(
+        selectField('Echo time', {
+          options: [
+            ['0.5', '1/8'],
+            ['0.75', '1/8 dotted'],
+            [String(2 / 3), '1/4 triplet'],
+            ['1', '1/4'],
+            ['1.5', '1/4 dotted'],
+          ],
+          get: () => String(s.song.echoBeats ?? 0.75),
+          set: (v) => s.update((so) => (so.echoBeats = Number(v))),
+        }),
+      ),
+      this.bind(
+        rangeField('Tuning', {
+          min: -50,
+          max: 50,
+          step: 1,
+          format: (v) => `${v > 0 ? '+' : ''}${v} ct`,
+          get: () => s.song.tuning ?? 0,
+          set: (v) => {
+            s.song.tuning = v;
+            s.touch();
+          },
+          onStart: () => s.beginGesture(),
+          onEnd: () => s.endGesture(),
+          help: 'Retune every instrument, e.g. to match a recording that is not at A = 440 Hz',
+        }),
+      ),
       this.bind(selectField('Key', { options: NOTE_NAMES.map((n, i) => [String(i), n]), get: () => String(s.song.key), set: (v) => s.update((so) => (so.key = Number(v))) })),
       this.bind(selectField('Scale', { options: Object.entries(SCALES).map(([id, sc]) => [id, sc.label]), get: () => s.song.scale, set: (v) => s.update((so) => (so.scale = v)) })),
       this.bind(numberField('Length (bars)', { min: 1, max: 256, step: 1, get: () => s.song.bars, set: (v) => s.update((so) => (so.bars = Math.round(v))) })),

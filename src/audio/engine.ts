@@ -2,7 +2,7 @@ import type { Store } from '../core/store';
 import { Timeline } from '../core/timing';
 import { BAR, PPQ, songLengthTicks, type Song, type Track } from '../core/types';
 import { loadKit } from './drums';
-import { buildEvents, Graph, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
+import { buildEvents, Graph, graphLatency, lowerBound, NoteScheduler, type KitBuffers, type SchedEvent } from './graph';
 import type { Voice } from './instruments';
 import { peakEnvelope } from './tempo';
 
@@ -18,6 +18,8 @@ interface Segment {
 export class AudioEngine {
   ctx: AudioContext | null = null;
   graph: Graph | null = null;
+  /** Look-ahead delay of the master compressor and limiter, in seconds. */
+  private chainLatency = 0;
   sched: NoteScheduler | null = null;
   analyser: AnalyserNode | null = null;
   streamDest: MediaStreamAudioDestinationNode | null = null;
@@ -69,6 +71,7 @@ export class AudioEngine {
       this.ctx = ctx;
       const graph = new Graph(ctx);
       this.graph = graph;
+      void graphLatency(ctx.sampleRate).then((s) => (this.chainLatency = s));
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.72;
@@ -172,10 +175,12 @@ export class AudioEngine {
     return { start: tl.rawTickToSec(l.start), end: tl.rawTickToSec(Math.min(l.end, songLengthTicks(this.song))) };
   }
 
+  /** How far what you hear (or what the video recorder captures) lags the scheduling clock. */
   private latency(): number {
-    if (!this.ctx || this.exportMode) return 0;
+    if (!this.ctx) return 0;
+    if (this.exportMode) return this.chainLatency;
     const c = this.ctx as AudioContext & { outputLatency?: number };
-    return Math.min(0.25, (c.outputLatency || 0) + (c.baseLatency || 0));
+    return Math.min(0.25, this.chainLatency + (c.outputLatency || 0) + (c.baseLatency || 0));
   }
 
   private rawPosition(ctxTime: number): number {

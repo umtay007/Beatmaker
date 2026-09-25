@@ -3,9 +3,13 @@ import { fft } from './fft';
 
 /**
  * Estimate the key of a recording: STFT (~2.7 Hz bins) → peak-picked chroma between 50 Hz and
- * 2 kHz → Krumhansl–Kessler key profiles.
+ * 2 kHz → Krumhansl–Kessler key profiles. The same spectral peaks give the tuning: the circular
+ * mean of how far each peak sits from equal temperament (A = 440 Hz), in cents.
  */
-export function detectAudioKey(buf: AudioBuffer, maxSeconds = 120): { key: number; scale: 'major' | 'minor'; confidence: number } {
+export function detectAudioKey(
+  buf: AudioBuffer,
+  maxSeconds = 120,
+): { key: number; scale: 'major' | 'minor'; confidence: number; tuning: number } {
   const c0 = buf.getChannelData(0);
   const c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
   const dec = Math.max(1, Math.round(buf.sampleRate / 11025));
@@ -14,6 +18,8 @@ export function detectAudioKey(buf: AudioBuffer, maxSeconds = 120): { key: numbe
   const N = 4096;
   const hop = 2048;
   const chroma = new Array(12).fill(0);
+  let tc = 0;
+  let ts = 0;
   const re = new Float64Array(N);
   const im = new Float64Array(N);
   const mag = new Float64Array(N / 2);
@@ -32,6 +38,8 @@ export function detectAudioKey(buf: AudioBuffer, maxSeconds = 120): { key: numbe
     }
     fft(re, im);
     for (let k = k0 - 1; k <= k1 + 1; k++) mag[k] = Math.hypot(re[k], im[k]);
+    let top = 0;
+    for (let k = k0; k <= k1; k++) top = Math.max(top, mag[k]);
     for (let k = k0; k <= k1; k++) {
       const m = mag[k];
       if (m <= mag[k - 1] || m < mag[k + 1]) continue; // spectral peaks only
@@ -48,9 +56,22 @@ export function detectAudioKey(buf: AudioBuffer, maxSeconds = 120): { key: numbe
       // Low notes (808s, bass) are strong evidence for the tonic; keep them, but tame their level.
       const w = Math.sqrt(m) * (1 - dev * 2) * (f < 120 ? 0.7 : 1);
       chroma[((nearest % 12) + 12) % 12] += w;
+      if (f > 150 && m > top * 0.03) {
+        // Tuning: re-interpolate on log magnitude (much less biased for a Hann window).
+        const la = Math.log(a + 1e-12);
+        const lm = Math.log(m + 1e-12);
+        const lb = Math.log(b + 1e-12);
+        const d2 = la - 2 * lm + lb;
+        const fl = (k + (d2 < 0 ? (0.5 * (la - lb)) / d2 : 0)) * binHz;
+        const cents = 1200 * Math.log2(fl / 440);
+        const ang = (2 * Math.PI * cents) / 100;
+        tc += m * Math.cos(ang);
+        ts += m * Math.sin(ang);
+      }
     }
   }
-  if (chroma.every((v) => v === 0)) return { key: 0, scale: 'minor', confidence: 0 };
+  if (chroma.every((v) => v === 0)) return { key: 0, scale: 'minor', confidence: 0, tuning: 0 };
   const r = estimateKey(chroma);
-  return { key: r.key, scale: r.scale, confidence: Math.max(0, Math.min(1, r.margin * 5)) };
+  const tuning = (Math.atan2(ts, tc) / (2 * Math.PI)) * 100;
+  return { key: r.key, scale: r.scale, confidence: Math.max(0, Math.min(1, r.margin * 5)), tuning };
 }

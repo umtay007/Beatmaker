@@ -67,6 +67,7 @@ const ICONS: Record<string, string> = {
   duplicate: '<rect x="3" y="7" width="10" height="10" rx="2"/><rect x="11" y="7" width="10" height="10" rx="2"/>',
   broom: '<path d="M19 3l-7 7"/><path d="M12 10c-3 0-6 2-7 5l-2 6 6-2c3-1 5-4 5-7z"/>',
   magnet: '<path d="M6 3v8a6 6 0 0 0 12 0V3"/><path d="M6 7h4M14 7h4"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
 };
 
 export function icon(name: string, size = 18): SVGSVGElement {
@@ -184,6 +185,12 @@ export function closeMenu(): void {
   openMenu = null;
 }
 
+/** A floating panel with arbitrary content under `anchor`; closes on an outside click or Escape. */
+export function showPopover(anchor: HTMLElement, content: HTMLElement): void {
+  closeMenu();
+  float(anchor, h('div', { class: 'menu popover', role: 'dialog' }, content));
+}
+
 export function showMenu(anchor: HTMLElement, items: (MenuItem | '-')[]): void {
   closeMenu();
   const menu = h(
@@ -208,6 +215,10 @@ export function showMenu(anchor: HTMLElement, items: (MenuItem | '-')[]): void {
           ),
     ),
   );
+  float(anchor, menu);
+}
+
+function float(anchor: HTMLElement, menu: HTMLElement): void {
   document.body.append(menu);
   const r = anchor.getBoundingClientRect();
   const mw = menu.offsetWidth;
@@ -221,12 +232,14 @@ export function showMenu(anchor: HTMLElement, items: (MenuItem | '-')[]): void {
   openMenu = menu;
   setTimeout(() => {
     const off = (e: Event) => {
-      if (!menu.contains(e.target as Node)) {
-        closeMenu();
+      if (openMenu !== menu || (e instanceof KeyboardEvent ? e.key === 'Escape' : !menu.contains(e.target as Node))) {
+        if (openMenu === menu) closeMenu();
         document.removeEventListener('pointerdown', off, true);
+        document.removeEventListener('keydown', off, true);
       }
     };
     document.addEventListener('pointerdown', off, true);
+    document.addEventListener('keydown', off, true);
   });
 }
 

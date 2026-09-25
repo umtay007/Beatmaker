@@ -29,6 +29,10 @@ export interface Track {
   pan: number;
   /** Reverb send 0..1. */
   reverb: number;
+  /** Echo (tempo-synced delay) send 0..1. */
+  echo?: number;
+  /** Fine tuning of this track in cents (synth tracks). */
+  tune?: number;
   mute: boolean;
   solo: boolean;
   /** Whether the track is drawn by the visualizer. */
@@ -59,6 +63,10 @@ export interface Song {
   audioOffset: number;
   /** When a backing audio file is loaded: play the synths too? */
   synthsWithAudio: boolean;
+  /** Fine tuning of every synth, in cents (match a reference recording that is not at A = 440 Hz). */
+  tuning?: number;
+  /** Echo delay time in beats (0.75 = dotted 8th, 2/3 = quarter triplet). */
+  echoBeats?: number;
 }
 
 let nextNoteId = 1;

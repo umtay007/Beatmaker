@@ -1,7 +1,7 @@
 import { Timeline } from '../core/timing';
 import type { Song } from '../core/types';
 import { loadKit } from './drums';
-import { buildEvents, Graph, NoteScheduler, type KitBuffers } from './graph';
+import { buildEvents, Graph, graphLatency, NoteScheduler, type KitBuffers } from './graph';
 
 export interface RenderOptions {
   from: number;
@@ -17,7 +17,10 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const sr = opts.sampleRate ?? 44100;
   const tl = new Timeline(song);
   const length = Math.max(0.1, opts.to - opts.from + opts.tail);
-  const ctx = new OfflineAudioContext(2, Math.ceil(length * sr), sr);
+  // Render the master chain's look-ahead delay too, then trim it so hits land exactly on the grid.
+  const lat = Math.round((await graphLatency(sr)) * sr);
+  const frames = Math.ceil(length * sr);
+  const ctx = new OfflineAudioContext(2, frames + lat, sr);
   const graph = new Graph(ctx);
   graph.applyMix(song, false);
   graph.out.connect(ctx.destination);
@@ -40,7 +43,11 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
     if (pos >= 0) src.start(0, pos);
     else src.start(-pos, 0);
   }
-  return ctx.startRendering();
+  const full = await ctx.startRendering();
+  if (lat === 0) return full;
+  const out = new AudioBuffer({ length: frames, numberOfChannels: full.numberOfChannels, sampleRate: sr });
+  for (let c = 0; c < full.numberOfChannels; c++) out.copyToChannel(full.getChannelData(c).subarray(lat, lat + frames), c);
+  return out;
 }
 
 /** Encode an AudioBuffer as a 16-bit PCM WAV file. */

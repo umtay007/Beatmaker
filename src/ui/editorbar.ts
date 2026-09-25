@@ -3,7 +3,7 @@ import { GENRES, regeneratePart } from '../beats/generator';
 import type { Store } from '../core/store';
 import { PPQ, STEP } from '../core/types';
 import type { Actions } from './actions';
-import { h, icon, showMenu } from './dom';
+import { h, icon, showMenu, showPopover } from './dom';
 import type { Editor } from './editor';
 import { instrumentOptions } from './tracks';
 
@@ -34,6 +34,7 @@ export class EditorBar {
   private lenWrap: HTMLElement;
   private pan: HTMLInputElement;
   private rev: HTMLInputElement;
+  private fx: HTMLButtonElement;
   private follow: HTMLButtonElement;
   private keys: HTMLButtonElement;
   private instKind = '';
@@ -57,7 +58,7 @@ export class EditorBar {
     this.grid.addEventListener('change', () => store.setUI({ grid: Number(this.grid.value) }));
     this.len = h('select', { class: 'select', 'aria-label': 'New note length' }, LENGTHS.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
     this.len.addEventListener('change', () => store.setUI({ noteLength: Number(this.len.value) }));
-    this.lenWrap = h('span', { style: { display: 'contents' } }, h('span', { class: 'lbl' }, 'Length'), this.len);
+    this.lenWrap = h('span', { style: { display: 'contents' } }, h('span', { class: 'lbl hide-md' }, 'Length'), this.len);
 
     const mini = (label: string, min: number, max: number, key: 'pan' | 'reverb') => {
       const r = h('input', { type: 'range', class: 'range mini-range', min, max, step: 0.01, 'aria-label': label, title: label }) as HTMLInputElement;
@@ -79,6 +80,12 @@ export class EditorBar {
     };
     this.pan = mini('Pan (double-click to center)', -1, 1, 'pan');
     this.rev = mini('Reverb send', 0, 1, 'reverb');
+    this.fx = h(
+      'button',
+      { class: 'btn btn-ghost', title: 'Echo and fine tuning for this track', onclick: (e: MouseEvent) => this.fxPopover(e.currentTarget as HTMLElement) },
+      icon('sliders', 15),
+      'FX',
+    ) as HTMLButtonElement;
 
     this.follow = h('button', { class: 'icon-btn', title: 'Follow playhead', 'aria-label': 'Follow playhead', onclick: () => store.setUI({ follow: !store.ui.follow }) }, icon('follow', 17)) as HTMLButtonElement;
     this.keys = h('button', { class: 'icon-btn', title: 'Play notes with your computer keyboard (K)', 'aria-label': 'Computer keyboard input', onclick: () => store.setUI({ keys: !store.ui.keys }) }, icon('keyboard', 17)) as HTMLButtonElement;
@@ -103,14 +110,15 @@ export class EditorBar {
       this.title,
       this.inst,
       h('div', { class: 'divider' }),
-      h('span', { class: 'lbl' }, 'Grid'),
+      h('span', { class: 'lbl hide-md' }, 'Grid'),
       this.grid,
       this.lenWrap,
       h('div', { class: 'divider' }),
-      h('span', { class: 'lbl hide-sm' }, 'Pan'),
+      h('span', { class: 'lbl hide-md' }, 'Pan'),
       this.pan,
-      h('span', { class: 'lbl hide-sm' }, 'Verb'),
+      h('span', { class: 'lbl hide-md' }, 'Verb'),
       this.rev,
+      this.fx,
       h('div', { class: 'divider' }),
       newPart,
       tools,
@@ -167,9 +175,51 @@ export class EditorBar {
     this.lenWrap.style.display = t.kind === 'drums' ? 'none' : 'contents';
     if (document.activeElement !== this.pan) this.pan.value = String(t.pan);
     if (document.activeElement !== this.rev) this.rev.value = String(t.reverb);
+    this.fx.classList.toggle('on', (t.echo ?? 0) > 0 || (t.kind === 'synth' && (t.tune ?? 0) !== 0));
     this.paintMini();
     this.follow.classList.toggle('on', ui.follow);
     this.keys.classList.toggle('on', ui.keys);
+  }
+
+  /** Echo send and fine tune for the selected track. */
+  private fxPopover(anchor: HTMLElement): void {
+    const store = this.store;
+    const t = store.track;
+    if (!t) return;
+    const row = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt: (v: number) => string, reset = 0) => {
+      const out = h('output', null, fmt(get()));
+      const r = h('input', { type: 'range', class: 'range', min, max, step, value: get(), 'aria-label': label }) as HTMLInputElement;
+      const paint = () => r.style.setProperty('--pct', `${((Number(r.value) - min) / (max - min)) * 100}%`);
+      paint();
+      r.addEventListener('pointerdown', () => store.beginGesture());
+      r.addEventListener('input', () => {
+        set(Number(r.value));
+        store.touch();
+        out.textContent = fmt(Number(r.value));
+        paint();
+        this.fx.classList.toggle('on', (t.echo ?? 0) > 0 || (t.kind === 'synth' && (t.tune ?? 0) !== 0));
+      });
+      r.addEventListener('change', () => store.endGesture());
+      r.addEventListener('dblclick', () => {
+        r.value = String(reset);
+        r.dispatchEvent(new Event('input'));
+      });
+      return h('label', { class: 'pop-row' }, label, r, out);
+    };
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    showPopover(
+      anchor,
+      h(
+        'div',
+        null,
+        h('div', { class: 'pop-title' }, `${t.name} · FX`),
+        row('Echo send', 0, 1, 0.01, () => t.echo ?? 0, (v) => (t.echo = v), pct),
+        t.kind === 'synth'
+          ? row('Fine tune', -100, 100, 1, () => t.tune ?? 0, (v) => (t.tune = v), (v) => `${v > 0 ? '+' : ''}${v} ct`)
+          : null,
+        h('p', { class: 'pop-note' }, 'The echo time (1/8 dotted, 1/4 triplet…) is set in Song settings. Double-click a slider to reset it.'),
+      ),
+    );
   }
 
   private toolsMenu(anchor: HTMLElement): void {

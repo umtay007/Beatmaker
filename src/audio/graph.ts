@@ -7,6 +7,7 @@ export interface TrackBus {
   vol: GainNode;
   pan: StereoPannerNode;
   send: GainNode;
+  echo: GainNode;
 }
 
 export interface SchedEvent {
@@ -39,6 +40,36 @@ function makeImpulse(ctx: BaseAudioContext, seconds = 2.4, decay = 3.2): AudioBu
   return buf;
 }
 
+const latencyCache = new Map<number, Promise<number>>();
+
+/**
+ * Seconds of delay through the master chain: the compressor and limiter look ahead (about 6 ms
+ * each in current browsers). Measured once per sample rate by rendering an impulse.
+ */
+export function graphLatency(sampleRate: number): Promise<number> {
+  let p = latencyCache.get(sampleRate);
+  if (!p) {
+    p = (async () => {
+      const len = Math.ceil(sampleRate * 0.1);
+      const ctx = new OfflineAudioContext(1, len, sampleRate);
+      const g = new Graph(ctx);
+      g.out.connect(ctx.destination);
+      const imp = ctx.createBuffer(1, 1, sampleRate);
+      imp.getChannelData(0)[0] = 0.5;
+      const src = ctx.createBufferSource();
+      src.buffer = imp;
+      src.connect(g.masterIn);
+      src.start(0);
+      const d = (await ctx.startRendering()).getChannelData(0);
+      let i = 0;
+      while (i < d.length && Math.abs(d[i]) < 1e-5) i++;
+      return i < d.length ? i / sampleRate : 0;
+    })().catch(() => 0);
+    latencyCache.set(sampleRate, p);
+  }
+  return p;
+}
+
 /** The mixer graph: track buses → synth bus → master chain. Works for live and offline contexts. */
 export class Graph {
   readonly masterIn: GainNode;
@@ -46,7 +77,11 @@ export class Graph {
   readonly backing: GainNode;
   readonly out: GainNode;
   readonly reverbIn: GainNode;
+  readonly echoIn: GainNode;
   readonly buses = new Map<string, TrackBus>();
+  /** Song tuning in semitones, added to every synth note. */
+  tuning = 0;
+  private readonly echoDelay: DelayNode;
 
   constructor(readonly ctx: BaseAudioContext) {
     this.masterIn = ctx.createGain();
@@ -80,6 +115,22 @@ export class Graph {
     const wet = ctx.createGain();
     wet.gain.value = 0.55;
     this.reverbIn.connect(hp).connect(conv).connect(wet).connect(this.synthBus);
+
+    // Tempo-synced echo: a darkened feedback delay, shared by all tracks through their echo sends.
+    this.echoIn = ctx.createGain();
+    this.echoDelay = ctx.createDelay(4);
+    this.echoDelay.delayTime.value = 0.35;
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 4500;
+    const lowCut = ctx.createBiquadFilter();
+    lowCut.type = 'highpass';
+    lowCut.frequency.value = 250;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.32;
+    this.echoIn.connect(this.echoDelay).connect(tone).connect(lowCut);
+    lowCut.connect(fb).connect(this.echoDelay);
+    lowCut.connect(this.synthBus);
   }
 
   bus(track: Track): TrackBus {
@@ -89,18 +140,25 @@ export class Graph {
       const vol = this.ctx.createGain();
       const pan = this.ctx.createStereoPanner();
       const send = this.ctx.createGain();
+      const echo = this.ctx.createGain();
+      echo.gain.value = 0;
       input.connect(vol).connect(pan).connect(this.synthBus);
       pan.connect(send).connect(this.reverbIn);
-      b = { input, vol, pan, send };
+      pan.connect(echo).connect(this.echoIn);
+      b = { input, vol, pan, send, echo };
       this.buses.set(track.id, b);
     }
     return b;
   }
 
-  /** Apply volume / pan / mute / solo for all tracks. */
+  /** Apply volume / pan / sends / mute / solo for all tracks, plus the song's tuning and echo time. */
   applyMix(song: Song, smooth = true): void {
     const anySolo = song.tracks.some((t) => t.solo);
     const now = this.ctx.currentTime;
+    this.tuning = (song.tuning ?? 0) / 100;
+    const echoTime = Math.min(4, ((song.echoBeats ?? 0.75) * 60) / song.bpm);
+    if (smooth) this.echoDelay.delayTime.setTargetAtTime(echoTime, now, 0.05);
+    else this.echoDelay.delayTime.value = echoTime;
     for (const t of song.tracks) {
       const b = this.bus(t);
       const audible = !t.mute && (!anySolo || t.solo);
@@ -109,10 +167,12 @@ export class Graph {
         b.vol.gain.setTargetAtTime(g, now, 0.015);
         b.pan.pan.setTargetAtTime(t.pan, now, 0.015);
         b.send.gain.setTargetAtTime(t.reverb, now, 0.015);
+        b.echo.gain.setTargetAtTime(t.echo ?? 0, now, 0.015);
       } else {
         b.vol.gain.value = g;
         b.pan.pan.value = t.pan;
         b.send.gain.value = t.reverb;
+        b.echo.gain.value = t.echo ?? 0;
       }
     }
   }
@@ -212,7 +272,9 @@ export class NoteScheduler {
       return voice;
     }
     const inst = instrumentFor(track.instrument);
-    const voice = inst.build(ctx, bus.input, { time: at, pitch, dur, vel, glideFrom });
+    const tune = this.graph.tuning + (track.tune ?? 0) / 100;
+    const from = glideFrom === undefined ? undefined : glideFrom + tune;
+    const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
     this.track(voice, dur === null ? Infinity : at + dur + 4);
     return voice;
   }
