@@ -5,10 +5,12 @@ import { fft } from './fft';
  *
  * 1. Mono, ~22 kHz, STFT (1024 / hop ≈ 10 ms) → log-compressed spectral flux onset envelope,
  *    plus a separate low-band (kick) flux.
- * 2. Autocorrelation of the envelope, scored with a harmonic comb and a log-Gaussian tempo prior.
+ * 2. Autocorrelation of the envelope, scored with a harmonic comb and a log-Gaussian tempo prior,
+ *    then a 16th-grid fit that rejects the 2/3 and 3/2 "triplet" tempos trap hats often suggest.
  * 3. Beat phase from kick/snare-weighted onsets, preferring the grid with fewer hi-hats on it, so
- *    it lands on the beat rather than on off-beat hats or pumping bass. The downbeat is assumed to
- *    be the first beat; the UI offers one-click shifts for pickups.
+ *    it lands on the beat rather than on off-beat hats or pumping bass, refined to ~1 ms from the
+ *    raw audio. The downbeat is assumed to be the first beat; the UI offers one-click shifts for
+ *    pickups.
  */
 export interface TempoResult {
   bpm: number;
@@ -17,7 +19,18 @@ export interface TempoResult {
   confidence: number;
 }
 
-function onsetEnvelopes(buf: AudioBuffer, maxSeconds: number): { full: Float32Array; low: Float32Array; mid: Float32Array; high: Float32Array; fps: number; bias: number } {
+interface Envelopes {
+  full: Float32Array;
+  low: Float32Array;
+  mid: Float32Array;
+  high: Float32Array;
+  fps: number;
+  bias: number;
+  mono: Float32Array;
+  sr: number;
+}
+
+function onsetEnvelopes(buf: AudioBuffer, maxSeconds: number): Envelopes {
   const c0 = buf.getChannelData(0);
   const c1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : c0;
   const dec = buf.sampleRate > 30000 ? 2 : 1;
@@ -92,11 +105,38 @@ function onsetEnvelopes(buf: AudioBuffer, maxSeconds: number): { full: Float32Ar
     return out;
   };
   // Frames are stamped at the window start; an onset registers around the window centre.
-  return { full: clean(full), low: clean(low), mid: clean(mid), high: clean(high), fps, bias: N / 2 / sr };
+  return { full: clean(full), low: clean(low), mid: clean(mid), high: clean(high), fps, bias: N / 2 / sr, mono, sr };
+}
+
+/**
+ * The flux frames are 10 ms apart and smeared by a 46 ms window, which leaves the grid a few
+ * milliseconds off. Refine it: average a 1 ms energy-rise curve of the bright (differentiated)
+ * signal around every predicted beat and move the grid to where hits actually start.
+ */
+function refinePhase(mono: Float32Array, sr: number, first: number, bpm: number): number {
+  const beat = 60 / bpm;
+  const ms = sr / 1000;
+  const span = 30;
+  const acc = new Float64Array(2 * span);
+  for (let t = first; (t + 0.05) * sr < mono.length; t += beat) {
+    const e = new Float64Array(2 * span + 1);
+    for (let j = 0; j <= 2 * span; j++) {
+      const a = Math.floor((t + (j - span) / 1000) * sr);
+      let s = 0;
+      for (let i = Math.max(1, a); i < a + ms && i < mono.length; i++) s += (mono[i] - mono[i - 1]) ** 2;
+      e[j] = Math.log(s + 1e-9);
+    }
+    for (let j = 0; j < 2 * span; j++) acc[j] += Math.max(0, e[j + 1] - e[j]);
+  }
+  let best = span;
+  for (let j = 0; j < 2 * span; j++) if (acc[j] > acc[best]) best = j;
+  // acc[j] is the rise between ms j and j+1: the onset starts at the end of that millisecond.
+  const shift = (best + 1 - span) / 1000;
+  return Math.abs(shift) < 0.025 ? first + shift : first;
 }
 
 export function detectTempo(buf: AudioBuffer, maxSeconds = 60): TempoResult {
-  const { full, low, mid, high, fps, bias } = onsetEnvelopes(buf, maxSeconds);
+  const { full, low, mid, high, fps, bias, mono, sr } = onsetEnvelopes(buf, maxSeconds);
   const n = full.length;
   if (n < fps * 4) return { bpm: 120, firstBeat: 0, confidence: 0 };
 
@@ -138,6 +178,34 @@ export function detectTempo(buf: AudioBuffer, maxSeconds = 60): TempoResult {
   const denom = y0 - 2 * y1 + y2;
   const lag = denom < 0 ? l0 + Math.max(-0.25, Math.min(0.25, (0.25 * 0.5 * (y0 - y2)) / denom)) : l0;
   let bpm = Math.max(50, Math.min(220, (fps * 60) / lag));
+
+  // Triplet confusion: hi-hat rolls and dotted 808 patterns make 2/3 (or 3/2) of the tempo look
+  // periodic too. The true tempo puts the onsets on its own 16th grid, so compare how much onset
+  // energy each candidate's 16th grid catches per grid point (±1 frame for swing and timing).
+  const gridFit = (b: number) => {
+    const sf = (fps * 60) / b / 4;
+    let bestFit = 0;
+    for (let p = 0; p < sf; p += 0.5) {
+      let s = 0;
+      let c = 0;
+      for (let x = p; x < n - 2; x += sf) {
+        const i = Math.max(1, Math.round(x));
+        s += Math.max(full[i - 1], full[i], full[i + 1]);
+        c++;
+      }
+      if (c) bestFit = Math.max(bestFit, s / c);
+    }
+    return bestFit;
+  };
+  const base = gridFit(bpm);
+  let bestAlt = { bpm, fit: base * 1.15 };
+  for (const r of [2 / 3, 3 / 2]) {
+    const alt = bpm * r;
+    if (alt < 60 || alt > 200) continue;
+    const f = gridFit(alt);
+    if (f > bestAlt.fit) bestAlt = { bpm: alt, fit: f };
+  }
+  bpm = bestAlt.bpm;
 
   // Phase-coherent refinement over the whole excerpt: the right tempo keeps onsets on the grid
   // for every beat, so small tempo errors are heavily penalised.
@@ -191,7 +259,8 @@ export function detectTempo(buf: AudioBuffer, maxSeconds = 60): TempoResult {
   const onScore = (p: number) => combAt(beatEnv, beatFrames, p) - 0.35 * combAt(high, beatFrames, p) + 0.35 * combAt(high, beatFrames, p + beatFrames / 2);
   if (onScore(alt) > onScore(bestPhase)) bestPhase = alt;
   const mean = sum / Math.max(1, cnt);
-  return { bpm, firstBeat: bestPhase / fps + bias, confidence: Math.max(0, Math.min(1, 1 - mean / (best.s + 1e-12))) };
+  const firstBeat = refinePhase(mono, sr, bestPhase / fps + bias, bpm);
+  return { bpm, firstBeat, confidence: Math.max(0, Math.min(1, 1 - mean / (best.s + 1e-12))) };
 }
 
 /** Peak envelope at `rate` values per second, for drawing waveforms. */
