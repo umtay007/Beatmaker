@@ -61,9 +61,9 @@ export const KITS: KitDef[] = [
   }),
   kit('florida', 'Florida Trap', {
     36: { f0: 190, f1: 50, pitchDecay: 0.04, decay: 0.42, click: 0.6, drive: 1.8 },
-    38: { tone: 330, toneDecay: 0.05, noise: 1, noiseDecay: 0.045, hp: 1200, lp: 13000, body: 0.7 },
+    38: { tone: 270, toneDecay: 0.05, noise: 1, noiseDecay: 0.045, hp: 1200, lp: 13000, body: 0.7 },
     39: { freq: 2500, decay: 0.055, spread: 0.005, q: 0.55 },
-    37: { freq: 2400, decay: 0.11, q: 8, sub: 0.1, level: 0.15 },
+    37: { freq: 2400, decay: 0.11, q: 5, sub: 0.1, level: 0.18 },
     42: { decay: 0.11, hp: 7000, bp: 9000, noiseMix: 0.55, steep: true, level: 0.4 },
     46: { decay: 0.3, hp: 6500, bp: 9500, noiseMix: 0.55 },
   }),

@@ -570,9 +570,9 @@ export const INSTRUMENTS: InstrumentDef[] = [
         [-1, [-11, 4]],
         [1, [11, -4]],
       ] as const) {
-        const lp = v.filter('lowpass', 1900, 0.5);
+        const lp = v.filter('lowpass', 2300, 0.5);
         v.lfo(lp.frequency, side < 0 ? 0.21 : 0.17, 160);
-        const lp2 = v.filter('lowpass', 6500, 0.5);
+        const lp2 = v.filter('lowpass', 4500, 0.5);
         for (const d of dets) {
           const o = v.osc('sawtooth', 1, d);
           v.lfo(o.detune, 4.6, 5, 0.4);
@@ -582,14 +582,14 @@ export const INSTRUMENTS: InstrumentDef[] = [
         const scoop = v.filter('peaking', 1250, 0.9);
         scoop.gain.value = -6;
         const air = v.filter('highshelf', 3500, 0.7);
-        air.gain.value = 5;
+        air.gain.value = 1;
         const amp = v.gain(0);
         v.adsr(amp.gain, 0.28, 0.8, 0.9, a.vel * 0.12);
         lp.connect(lp2).connect(scoop).connect(air).connect(amp).connect(v.panned(side));
       }
       const body = v.osc('triangle');
       const bg = v.gain(0);
-      v.adsr(bg.gain, 0.2, 0.8, 0.9, a.vel * 0.11);
+      v.adsr(bg.gain, 0.2, 0.8, 0.9, a.vel * 0.04);
       body.connect(bg).connect(v.rel);
       return v.finish();
     },
