@@ -1,5 +1,6 @@
 import { estimateKey, normalizeDrumPitch } from '../core/theory';
-import { BAR, newNoteId, newTrackId, PPQ, type Note, type Song, type Track } from '../core/types';
+import { Timeline } from '../core/timing';
+import { BAR, MAX_BARS, newNoteId, newTrackId, PPQ, type Note, type Song, type Track } from '../core/types';
 import { KIT_BY_ID } from '../audio/drums';
 
 // ---------------------------------------------------------------------------------------------
@@ -304,7 +305,7 @@ export function midiToSong(buf: ArrayBuffer, fileName: string, opts: ImportOptio
   }
   if (!tracks.length) throw new Error('No notes found in this MIDI file');
 
-  const bars = Math.max(1, Math.ceil((maxStart + 1) / BAR));
+  const bars = Math.min(MAX_BARS, Math.max(1, Math.ceil((maxStart + 1) / BAR)));
   const { key, scale: sc } = midi.keySig ?? detectKey(tracks);
   return {
     name: fileName.replace(/\.(mid|midi)$/i, ''),
@@ -358,6 +359,7 @@ function chunk(id: string, data: number[]): number[] {
 
 export function songToMidi(song: Song): Uint8Array {
   const out: number[] = [];
+  const tl = new Timeline(song);
   out.push(...chunk('MThd', [0, 1, 0, song.tracks.length + 1, 0, PPQ]));
 
   // Tempo track
@@ -399,8 +401,11 @@ export function songToMidi(song: Song): Uint8Array {
     const evs: { tick: number; on: boolean; pitch: number; vel: number }[] = [];
     for (const n of t.notes) {
       const v = Math.max(1, Math.min(127, Math.round(n.vel * 127)));
-      evs.push({ tick: n.start, on: true, pitch: n.pitch, vel: v });
-      evs.push({ tick: n.start + Math.max(1, n.dur), on: false, pitch: n.pitch, vel: 0 });
+      // Bake swing into the ticks: other apps would otherwise play the groove straight.
+      const on = Math.round(tl.swingTick(n.start));
+      const off = Math.max(on + 1, Math.round(tl.swingTick(n.start + Math.max(1, n.dur))));
+      evs.push({ tick: on, on: true, pitch: n.pitch, vel: v });
+      evs.push({ tick: off, on: false, pitch: n.pitch, vel: 0 });
     }
     evs.sort((a, b) => a.tick - b.tick || (a.on === b.on ? 0 : a.on ? 1 : -1));
     let prev = 0;

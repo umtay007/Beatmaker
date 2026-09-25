@@ -7,11 +7,11 @@ import { blankSong } from '../beats/templates';
 import { normalizeSong, type Store } from '../core/store';
 import { pcName } from '../core/theory';
 import { Timeline } from '../core/timing';
-import { BAR, cloneSong, newNoteId } from '../core/types';
+import { BAR, cloneSong, MAX_BARS, newNoteId } from '../core/types';
 import { midiToSong, songToMidi } from '../midi/midi';
 import { exportVideo, pickFormat } from '../visual/exporter';
 import type { VisualPlayer } from '../visual/player';
-import { DEFAULT_VISUAL, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
+import { mergeVisual, PALETTES, presetSettings, type VisualSettings } from '../visual/settings';
 import { downloadBlob, h, modal, pickFile, safeName, toast } from './dom';
 
 const SCALES_7 = new Set(['minor', 'major', 'dorian', 'phrygian', 'harmonic', 'mixolydian', 'lydian']);
@@ -85,7 +85,7 @@ export class Actions {
       if (dur > end + 0.5) {
         const tl = this.engine.timeline;
         const bars = Math.ceil(tl.secToTick(dur) / BAR);
-        this.store.update((s) => (s.bars = Math.min(256, bars)));
+        this.store.update((s) => (s.bars = Math.min(MAX_BARS, bars)));
       }
       this.engine.applySynthMute();
       this.store.emit('ui');
@@ -121,7 +121,7 @@ export class Actions {
       // Fit the song to the reference (but never cut off existing notes).
       const audioBars = Math.ceil(new Timeline(s).secToTick(buf.duration + s.audioOffset) / BAR);
       const lastNote = Math.max(0, ...s.tracks.flatMap((t) => t.notes.map((n) => n.start + n.dur)));
-      s.bars = Math.min(256, Math.max(1, audioBars, Math.ceil(lastNote / BAR)));
+      s.bars = Math.min(MAX_BARS, Math.max(1, audioBars, Math.ceil(lastNote / BAR)));
     });
     const tip = res.bpm > 150 ? ` (half-time feel? try ${Math.round(res.bpm / 2)})` : res.bpm < 75 ? ` (double-time? try ${Math.round(res.bpm * 2)})` : '';
     const tuned = Math.abs(key.tuning) >= 6 ? `, tuned ${key.tuning > 0 ? '+' : ''}${Math.round(key.tuning)} cents` : '';
@@ -162,7 +162,7 @@ export class Actions {
       const data = JSON.parse(await file.text()) as { format?: string; song?: unknown; visual?: Partial<VisualSettings> };
       if (!data.song) throw new Error('Not a Beatmaker project');
       this.store.loadSong(normalizeSong(data.song as never));
-      if (data.visual) this.store.replaceVisual({ ...DEFAULT_VISUAL, ...data.visual });
+      if (data.visual) this.store.replaceVisual(mergeVisual(data.visual));
       this.engine.stop();
       void this.engine.ensureKits();
       toast(`Opened ${file.name}`, 'ok');
@@ -309,7 +309,7 @@ export class Actions {
   doubleLength(): void {
     this.store.update((s) => {
       const len = s.bars * BAR;
-      if (s.bars * 2 > 256) return;
+      if (s.bars * 2 > MAX_BARS) return;
       for (const t of s.tracks) {
         const copies = t.notes.filter((n) => n.start < len).map((n) => ({ ...n, id: newNoteId(), start: n.start + len }));
         t.notes.push(...copies);

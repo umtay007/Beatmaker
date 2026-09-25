@@ -526,3 +526,19 @@ export function aspectSize(aspect: VisualSettings['aspect'], shortEdge: number):
   // Video encoders want even dimensions.
   return { w: w - (w % 2), h: h - (h % 2) };
 }
+
+/**
+ * Merge saved or imported visual settings over the defaults, keeping only known keys whose value
+ * has the default's type, so a stale or hand-edited file can't break the renderer.
+ */
+export function mergeVisual(saved: unknown): VisualSettings {
+  const out: Record<string, unknown> = { ...DEFAULT_VISUAL };
+  if (!saved || typeof saved !== 'object') return out as unknown as VisualSettings;
+  for (const [k, def] of Object.entries(DEFAULT_VISUAL)) {
+    const v = (saved as Record<string, unknown>)[k];
+    if (v === undefined || v === null) continue;
+    if (Array.isArray(def) ? Array.isArray(v) : typeof v === typeof def && (typeof v !== 'number' || Number.isFinite(v))) out[k] = v;
+  }
+  if (!/^\d+:\d+$/.test(String(out.aspect))) out.aspect = DEFAULT_VISUAL.aspect;
+  return out as unknown as VisualSettings;
+}

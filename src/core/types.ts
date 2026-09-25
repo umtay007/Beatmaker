@@ -3,6 +3,8 @@ export const PPQ = 96;
 export const STEP = PPQ / 4;
 export const BEATS_PER_BAR = 4;
 export const BAR = PPQ * BEATS_PER_BAR;
+/** Longest song (full-length MIDI imports: 1024 bars is 13 minutes at 160 BPM). */
+export const MAX_BARS = 1024;
 
 export interface Note {
   id: number;

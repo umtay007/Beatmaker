@@ -1,5 +1,6 @@
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
+import { withDuration } from './container';
 import type { VisualPlayer } from './player';
 
 export interface ExportFormat {
@@ -108,6 +109,7 @@ export function exportVideo(
       engine.onEnded = () => r();
     });
     rec.start(250);
+    const recStart = performance.now();
 
     const total = until - from;
     progressTimer = window.setInterval(() => {
@@ -120,11 +122,15 @@ export function exportVideo(
     // Let the final frames flush.
     await new Promise((r) => setTimeout(r, 150));
     if (rec.state !== 'inactive') rec.stop();
+    const recSeconds = (performance.now() - recStart) / 1000;
     await stopped;
     vstream.getTracks().forEach((t) => t.stop());
     cleanup();
     if (cancelled) return null;
-    return { blob: new Blob(chunks, { type: fmt.mime.split(';')[0] }), ext: fmt.ext };
+    const type = fmt.mime.split(';')[0];
+    if (fmt.ext !== 'webm') return { blob: new Blob(chunks, { type }), ext: fmt.ext };
+    const raw = new Uint8Array(await new Blob(chunks).arrayBuffer());
+    return { blob: new Blob([withDuration(raw, fmt.ext, recSeconds)], { type }), ext: fmt.ext };
   };
 
   const done = run().catch((err) => {

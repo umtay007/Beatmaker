@@ -2,7 +2,7 @@ import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
 import { NOTE_NAMES, SCALES } from '../core/theory';
-import { BAR } from '../core/types';
+import { BAR, MAX_BARS } from '../core/types';
 import { formatSupport } from '../visual/exporter';
 import { FONTS, PALETTES, PRESETS, presetSettings, type VisualSettings } from '../visual/settings';
 import type { Actions } from './actions';
@@ -278,7 +278,7 @@ export class Inspector {
       ),
       this.bind(selectField('Key', { options: NOTE_NAMES.map((n, i) => [String(i), n]), get: () => String(s.song.key), set: (v) => s.update((so) => (so.key = Number(v))) })),
       this.bind(selectField('Scale', { options: Object.entries(SCALES).map(([id, sc]) => [id, sc.label]), get: () => s.song.scale, set: (v) => s.update((so) => (so.scale = v)) })),
-      this.bind(numberField('Length (bars)', { min: 1, max: 256, step: 1, get: () => s.song.bars, set: (v) => s.update((so) => (so.bars = Math.round(v))) })),
+      this.bind(numberField('Length (bars)', { min: 1, max: MAX_BARS, step: 1, get: () => s.song.bars, set: (v) => s.update((so) => (so.bars = Math.round(v))) })),
       h('button', { class: 'btn btn-block', onclick: () => a.doubleLength() }, icon('duplicate', 16), 'Double length (repeat everything)'),
       this.bind(
         toggleField('Loop playback', {
@@ -294,7 +294,7 @@ export class Inspector {
       this.bind(
         numberField('Loop start bar', {
           min: 1,
-          max: 256,
+          max: MAX_BARS,
           step: 1,
           get: () => Math.floor(s.song.loop.start / BAR) + 1,
           set: (v) => s.update((so) => (so.loop.start = Math.min((v - 1) * BAR, so.loop.end - BAR))),
@@ -303,7 +303,7 @@ export class Inspector {
       this.bind(
         numberField('Loop end bar', {
           min: 1,
-          max: 257,
+          max: MAX_BARS + 1,
           step: 1,
           get: () => Math.ceil(s.song.loop.end / BAR) + 1,
           set: (v) => s.update((so) => (so.loop.end = Math.max((v - 1) * BAR, so.loop.start + BAR))),

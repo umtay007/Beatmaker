@@ -845,7 +845,8 @@ export function generateSong(opts: GenerateOptions): Song {
 export function regeneratePart(song: Song, track: Track, genreId: string, seed = Math.floor(Math.random() * 1e9)): Note[] {
   const g = GENRE_BY_ID.get(genreId) ?? GENRES[0];
   const rng = mulberry32(seed);
-  const scale = SCALES[song.scale]?.steps.length === 7 ? song.scale : 'minor';
+  // Pentatonic and blues songs borrow the matching 7-note scale for chords.
+  const scale = SCALES[song.scale]?.steps.length === 7 ? song.scale : song.scale === 'majpent' ? 'major' : 'minor';
   const chords = makeChords(rng, g, pick(rng, g.progressions), song.key, scale);
   const kick = pick(rng, g.kickPattern);
   const bars = song.bars;

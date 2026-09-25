@@ -1,5 +1,6 @@
-import { bumpNoteIds, cloneSong, STEP, type Song, type Track } from './types';
-import { DEFAULT_VISUAL, type VisualSettings } from '../visual/settings';
+import { SCALES } from './theory';
+import { BAR, bumpNoteIds, cloneSong, MAX_BARS, newNoteId, newTrackId, STEP, type Song, type Track } from './types';
+import { DEFAULT_VISUAL, mergeVisual, type VisualSettings } from '../visual/settings';
 
 export type StoreEvent = 'song' | 'visual' | 'ui' | 'history';
 type Listener = () => void;
@@ -96,7 +97,8 @@ export class Store {
   update(mutate: (song: Song) => void): void {
     const before = JSON.stringify(this.song);
     mutate(this.song);
-    if (this.gesture === null) this.pushUndo(before);
+    // An edit that changed nothing must not add an undo step (it would also clear redo).
+    if (this.gesture === null && JSON.stringify(this.song) !== before) this.pushUndo(before);
     this.changed();
   }
 
@@ -192,7 +194,7 @@ export class Store {
     const v = safeGet(VISUAL_KEY);
     if (v) {
       try {
-        this.visual = { ...DEFAULT_VISUAL, ...(JSON.parse(v) as Partial<VisualSettings>) };
+        this.visual = mergeVisual(JSON.parse(v));
       } catch {
         /* ignore */
       }
@@ -234,38 +236,68 @@ export class Store {
   }
 }
 
-/** Fill in any fields missing from older or foreign song JSON. */
+/** A finite number within [lo, hi], or the fallback for anything else (missing, NaN, a string…). */
+function num(v: unknown, fallback: number, lo = -Infinity, hi = Infinity): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+}
+
+/**
+ * Fill in missing fields and clamp bad values in older, foreign or hand-edited song JSON, so a
+ * broken project can't produce NaN times or gains that stop playback.
+ */
 export function normalizeSong(song: Partial<Song>): Song {
+  const bars = Math.round(num(song.bars, 4, 1, MAX_BARS));
+  const ids = new Set<string>();
   const s: Song = {
-    name: song.name ?? 'Untitled Beat',
-    artist: song.artist ?? '',
-    bpm: song.bpm ?? 120,
-    tempoChanges: song.tempoChanges ?? [],
-    swing: song.swing ?? 0,
-    bars: Math.max(1, Math.min(256, song.bars ?? 4)),
-    key: song.key ?? 0,
-    scale: song.scale ?? 'minor',
-    tracks: (song.tracks ?? []).map((t) => ({
-      id: t.id,
-      name: t.name ?? 'Track',
-      kind: t.kind ?? 'synth',
-      instrument: t.instrument ?? (t.kind === 'drums' ? 'trap' : 'pluck'),
-      color: t.color ?? '#00e5ff',
-      volume: t.volume ?? 0.8,
-      pan: t.pan ?? 0,
-      reverb: t.reverb ?? 0.15,
-      echo: t.echo ?? 0,
-      tune: Math.max(-100, Math.min(100, t.tune ?? 0)),
-      mute: !!t.mute,
-      solo: !!t.solo,
-      visible: t.visible ?? true,
-      notes: (t.notes ?? []).filter((n) => Number.isFinite(n.start) && Number.isFinite(n.pitch)),
-    })),
-    loop: song.loop ?? { enabled: false, start: 0, end: (song.bars ?? 4) * 384 },
-    audioOffset: song.audioOffset ?? 0,
+    name: typeof song.name === 'string' ? song.name : 'Untitled Beat',
+    artist: typeof song.artist === 'string' ? song.artist : '',
+    bpm: num(song.bpm, 120, 20, 400),
+    tempoChanges: (Array.isArray(song.tempoChanges) ? song.tempoChanges : [])
+      .filter((c) => c && Number.isFinite(c.tick) && c.tick >= 0 && Number.isFinite(c.bpm) && c.bpm > 0)
+      .map((c) => ({ tick: c.tick, bpm: Math.max(20, Math.min(400, c.bpm)) })),
+    swing: num(song.swing, 0, 0, 1),
+    bars,
+    key: ((Math.round(num(song.key, 0)) % 12) + 12) % 12,
+    scale: typeof song.scale === 'string' && SCALES[song.scale] ? song.scale : 'minor',
+    tracks: (Array.isArray(song.tracks) ? song.tracks : []).map((t) => {
+      let id = typeof t.id === 'string' && t.id ? t.id : newTrackId();
+      while (ids.has(id)) id = newTrackId();
+      ids.add(id);
+      const kind = t.kind === 'drums' ? 'drums' : 'synth';
+      return {
+        id,
+        name: typeof t.name === 'string' ? t.name : 'Track',
+        kind,
+        instrument: typeof t.instrument === 'string' ? t.instrument : kind === 'drums' ? 'trap' : 'pluck',
+        color: typeof t.color === 'string' ? t.color : '#00e5ff',
+        volume: num(t.volume, 0.8, 0, 1.5),
+        pan: num(t.pan, 0, -1, 1),
+        reverb: num(t.reverb, 0.15, 0, 1),
+        echo: num(t.echo, 0, 0, 1),
+        tune: Math.round(num(t.tune, 0, -100, 100)),
+        mute: !!t.mute,
+        solo: !!t.solo,
+        visible: t.visible ?? true,
+        notes: (Array.isArray(t.notes) ? t.notes : [])
+          .filter((n) => n && Number.isFinite(n.start) && Number.isFinite(n.pitch))
+          .map((n) => ({
+            id: Number.isFinite(n.id) ? n.id : newNoteId(),
+            pitch: Math.round(Math.max(0, Math.min(127, n.pitch))),
+            start: Math.max(0, Math.round(n.start)),
+            dur: Math.max(1, Math.round(num(n.dur, STEP))),
+            vel: num(n.vel, 0.8, 0.05, 1),
+          })),
+      };
+    }),
+    loop: {
+      enabled: !!song.loop?.enabled,
+      start: Math.max(0, num(song.loop?.start, 0)),
+      end: Math.max(0, num(song.loop?.end, bars * BAR)),
+    },
+    audioOffset: num(song.audioOffset, 0, -600, 600),
     synthsWithAudio: song.synthsWithAudio ?? true,
-    tuning: Math.max(-100, Math.min(100, song.tuning ?? 0)),
-    echoBeats: song.echoBeats ?? 0.75,
+    tuning: Math.round(num(song.tuning, 0, -100, 100)),
+    echoBeats: num(song.echoBeats, 0.75, 0.125, 4),
   };
   return s;
 }
