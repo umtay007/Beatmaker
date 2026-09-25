@@ -71,6 +71,13 @@ result as an MP4 or WebM video.
   part) and sets the new **Master** section: a 10-band EQ, stereo width, output level, reverb length
   and echo timing. If the original pumps, it also ducks your melodic tracks on the kick, adjusting
   the depth until your render dips as far as the original.
+- **Transcribe drums & notes** writes the original out as tracks, over the loop or the whole song:
+  drums from a beat detector (kick, snare and hi-hat found on every 16th, with an adaptive
+  threshold per part), and bass, chords and melody from Spotify's Basic Pitch model, split into
+  parts by how the notes sit against each other and quantized to the grid. The model (about 2 MB)
+  downloads once and runs in the browser. It's a first draft to clean up: on test songs it gets
+  about 80–90% of kicks and hats and half the bass notes, while chords and melodies come out rough,
+  better on clear instruments like piano or guitar than on pads and bells.
 - Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
   become drum tracks, and GM programs are mapped to the closest instrument (the real, sampled ones
@@ -145,6 +152,10 @@ The recorded drum machines come from the [fluid-music/open-drums](https://github
 packages, also loaded from jsDelivr: the TR-808 set by Michael Fischer (free, no restrictions), the
 TR-909 set by Jason Baker / Rob Roy Recordings (free to use and share, not to be sold) and the
 TR-707 set by Francois Dion (public domain).
+
+Note transcription uses [Basic Pitch](https://github.com/spotify/basic-pitch-ts) by Spotify
+(Apache-2.0): its model and TensorFlow.js (Apache-2.0) load from jsDelivr, and its inference
+windowing and note extraction are ported in `src/audio/transcribe.ts`.
 
 ## Keyboard shortcuts
 

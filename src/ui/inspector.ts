@@ -9,6 +9,7 @@ import type { Actions } from './actions';
 import { colorField, numberField, rangeField, segField, selectField, textField, toggleField, type Bound } from './controls';
 import { h, icon } from './dom';
 import { eqEditor, showSoundReport } from './soundmatch';
+import { showTranscriber } from './transcribeui';
 
 type V = VisualSettings;
 type Key = keyof V;
@@ -360,6 +361,7 @@ export class Inspector {
         h('div', { class: 'btn-row' }, loadBtn, removeBtn),
         h('button', { class: 'btn btn-block', onclick: () => a.detectBackingTempo() }, icon('metronome', 15), 'Detect tempo, key & align grid'),
         h('button', { class: 'btn btn-block', title: 'Measure the EQ, compression, width, reverb, echo, saturation and pumping of the original, and match your mix to it', onclick: () => showSoundReport(a) }, icon('wave', 15), 'Analyze sound & match mix…'),
+        h('button', { class: 'btn btn-block', title: 'Write the original’s drums, bass, chords and melody into tracks', onclick: () => (this.engine.backingBuffer ? showTranscriber(a, s) : a.analyzeReference()) }, icon('music', 15), 'Transcribe drums & notes…'),
         h(
           'div',
           { class: 'nudge-row' },

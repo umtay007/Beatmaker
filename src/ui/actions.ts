@@ -5,6 +5,8 @@ import { getKit, getStoredFile, putFileWithId, putKit, type UserKit } from '../c
 import type { AudioEngine } from '../audio/engine';
 import { encodeWav, renderSong } from '../audio/render';
 import { loadSamplerFile } from '../audio/sampler';
+import { drumNotes, splitParts } from '../audio/parts';
+import { drumGrid, transcribePitches } from '../audio/transcribe';
 import { detectAudioKey } from '../audio/key';
 import { detectTempo } from '../audio/tempo';
 import { generateSong, GENRE_BY_ID } from '../beats/generator';
@@ -12,7 +14,7 @@ import { blankSong } from '../beats/templates';
 import { normalizeSong, type Store } from '../core/store';
 import { pcName } from '../core/theory';
 import { Timeline } from '../core/timing';
-import { BAR, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, type MasterSettings } from '../core/types';
+import { BAR, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, newTrackId, songLengthTicks, STEP, type MasterSettings, type Note, type Track } from '../core/types';
 import { midiToSong, songToMidi } from '../midi/midi';
 import { exportVideo, pickFormat } from '../visual/exporter';
 import type { VisualPlayer } from '../visual/player';
@@ -377,6 +379,79 @@ export class Actions {
     } finally {
       m.close();
     }
+  }
+
+  /**
+   * Write parts from the reference audio: drums from a grid detector, and bass, chords and melody
+   * from the Basic Pitch model (downloaded on first use, run on this device). Covers the loop range
+   * if one is set, otherwise the whole song. Earlier transcribed tracks are updated in that range.
+   */
+  async transcribeReference(opts: { drums: boolean; pitched: boolean; sensitivity?: number }, onProgress: (msg: string) => void): Promise<string[]> {
+    const ref = this.engine.backingBuffer;
+    if (!ref) throw new Error('Load the original track first');
+    const song = this.store.song;
+    const tl = this.engine.timeline;
+    const off = song.audioOffset;
+    const useLoop = song.loop.enabled && song.loop.end > song.loop.start;
+    const startTick = useLoop ? song.loop.start : 0;
+    const endTick = Math.min(useLoop ? song.loop.end : songLengthTicks(song), Math.ceil(tl.secToTick(ref.duration + off)));
+    if (endTick <= startTick) throw new Error('The reference audio doesn’t reach the song’s grid (check the audio offset)');
+    const from = Math.max(0, tl.rawTickToSec(startTick) - off);
+    const to = Math.min(ref.duration, tl.rawTickToSec(endTick) - off);
+    const inRange = (n: Note) => n.start >= startTick && n.start < endTick;
+    const parts: { name: string; kind: Track['kind']; instrument: string; notes: Note[] }[] = [];
+    // The drums run for pitched parts too: a kick's thump must not become a bass note.
+    onProgress('Finding the drums…');
+    await new Promise((r) => setTimeout(r, 30));
+    const ticks: number[] = [];
+    for (let t = Math.ceil(startTick / STEP) * STEP; t < endTick; t += STEP) ticks.push(t);
+    const drums = drumNotes(drumGrid(ref, ticks.map((t) => tl.tickToSec(t) - off), opts.sensitivity), ticks).filter(inRange);
+    if (opts.drums) {
+      const kit = song.tracks.find((t) => t.kind === 'drums')?.instrument ?? 'trap';
+      parts.push({ name: 'Drums · from audio', kind: 'drums', instrument: kit, notes: drums });
+    }
+    if (opts.pitched) {
+      onProgress('Downloading the note model (about 2 MB, once)…');
+      const { notes, struck } = await transcribePitches(ref, from, to, {}, (p) => onProgress(`Listening for notes… ${Math.round(p * 100)}%`));
+      const kicks = new Set(drums.filter((n) => n.pitch === 36).map((n) => n.start));
+      const split = splitParts(notes, tl, { offset: off, kicks });
+      split.bass = splitParts(struck, tl, { offset: off, kicks }).bass;
+      const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 40;
+      parts.push(
+        { name: 'Bass · from audio', kind: 'synth', instrument: median(split.bass.map((n) => n.pitch)) < 43 ? 'bass808' : 'sebass', notes: split.bass.filter(inRange) },
+        { name: 'Chords · from audio', kind: 'synth', instrument: 'spiano', notes: split.chords.filter(inRange) },
+        { name: 'Melody · from audio', kind: 'synth', instrument: 'pluck', notes: split.melody.filter(inRange) },
+      );
+    }
+    const colors = this.palette();
+    const summary: string[] = [];
+    this.store.update((s) => {
+      for (const part of parts) {
+        const existing = s.tracks.find((t) => t.name === part.name);
+        if (existing) {
+          existing.notes = [...existing.notes.filter((n) => !inRange(n)), ...part.notes];
+        } else if (part.notes.length) {
+          s.tracks.push({
+            id: newTrackId(),
+            name: part.name,
+            kind: part.kind,
+            instrument: part.instrument,
+            color: colors[s.tracks.length % colors.length],
+            volume: 0.8,
+            pan: 0,
+            reverb: part.kind === 'drums' ? 0.05 : 0.2,
+            mute: false,
+            solo: false,
+            visible: true,
+            notes: part.notes,
+          });
+        }
+        summary.push(`${part.name.split(' ·')[0]}: ${part.notes.length} note${part.notes.length === 1 ? '' : 's'}`);
+      }
+      s.synthsWithAudio = true;
+    });
+    void this.engine.ensureKits();
+    return summary;
   }
 
   /** Measure the reference's mix (EQ, dynamics, width, reverb, echo, saturation, pumping). */
