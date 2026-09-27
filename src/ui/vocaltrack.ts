@@ -10,6 +10,7 @@ import { Timeline } from '../core/timing';
 import { DEFAULT_SAMPLER, newNoteId, newTrackId, type Song, type Track } from '../core/types';
 import { h, icon, modal, pickFile, toast } from './dom';
 import { showLyrics } from './lyricsui';
+import { separateButton } from './separateui';
 
 export interface VocalOptions {
   name: string;
@@ -64,18 +65,27 @@ export function newVocalTrack(store: Store, engine: AudioEngine, color: string):
       toast(`Couldn't add the vocals: ${(e as Error).message}`, 'error', 4500);
     }
   };
-  const stems = engine.stems?.vocals ?? null;
   const fromStems = h(
     'button',
     {
       class: 'btn btn-block',
-      disabled: !stems,
-      title: stems ? '' : 'Separate the parts first (Remake automatically, with “Separate the parts first”)',
-      onclick: () => void add(async () => vocalTrack(stems!, store.song, color, { name: 'Vocals (original)', withOriginal: true })),
+      onclick: () => {
+        const vocals = engine.stems?.vocals;
+        if (vocals) void add(async () => vocalTrack(vocals, store.song, color, { name: 'Vocals (original)', withOriginal: true }));
+      },
     },
     icon('wave', 15),
-    stems ? 'The original’s vocals' : 'The original’s vocals (separate the parts first)',
-  );
+    'The original’s vocals',
+  ) as HTMLButtonElement;
+  const sepStatus = h('p', { class: 'section-note' });
+  let sep: ReturnType<typeof separateButton> | null = null;
+  if (!engine.stems?.vocals) {
+    fromStems.disabled = true;
+    sep = separateButton(engine, sepStatus, () => {
+      sep?.el.remove();
+      fromStems.disabled = false;
+    });
+  }
   const align = h('input', { type: 'checkbox', checked: withOriginal, disabled: !hasOriginal }) as HTMLInputElement;
   align.addEventListener('change', () => (withOriginal = align.checked));
   const fromFile = h(
@@ -101,9 +111,10 @@ export function newVocalTrack(store: Store, engine: AudioEngine, color: string):
     { class: 'remake' },
     h('p', null, 'A vocal track plays a recording in time with the song. Add lyrics (Visual tab → Lyrics, or below) and they show in the video as they are sung.'),
     fromStems,
+    ...(sep ? [sep.el, sepStatus] : []),
     fromFile,
     h('label', { class: 'remake-opt' + (hasOriginal ? '' : ' off') }, align, h('span', null, h('strong', null, 'It lines up with the original'), h('small', null, 'Starts where the original recording starts (a take sung over the original, or its vocals). Otherwise it starts at bar 1.'))),
     h('button', { class: 'btn btn-ghost btn-block', onclick: () => (m.close(), showLyrics(store, engine)) }, icon('mic', 15), 'Lyrics…'),
   );
-  const m = modal('Vocal track', body);
+  const m = modal('Vocal track', body, { onClose: () => sep?.stop() });
 }

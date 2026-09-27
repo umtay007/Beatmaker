@@ -35,7 +35,6 @@ interface Job {
   libUrl: string;
   model: string;
   revision: string;
-  device: 'webgpu' | 'wasm';
   language: string | null;
   chunks: { at: number; audio: Float32Array }[];
 }
@@ -159,20 +158,10 @@ function workerMain(importModule: (url: string) => Promise<unknown>): void {
         ortEnv.wasm.wasmBinary = wasm;
         ortEnv.wasm.numThreads = 1;
       }
-      const key = `${job.model}@${job.revision}/${job.device}`;
+      const key = `${job.model}@${job.revision}`;
       if (!pipe || pipeKey !== key) {
-        const make = (device: string) =>
-          T.pipeline('automatic-speech-recognition', job.model, {
-            revision: job.revision,
-            device,
-            dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : { encoder_model: 'q8', decoder_model_merged: 'q8' },
-          });
-        try {
-          pipe = (await make(job.device)) as Pipe;
-        } catch (err) {
-          if (job.device !== 'webgpu') throw err;
-          pipe = (await make('wasm')) as Pipe;
-        }
+        // 8-bit weights on the CPU: about 80 MB, a few minutes for a song (Whisper base is small).
+        pipe = (await T.pipeline('automatic-speech-recognition', job.model, { revision: job.revision, device: 'wasm', dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' } })) as Pipe;
         pipeKey = key;
       }
       for (let i = 0; i < job.chunks.length; i++) {
@@ -212,16 +201,6 @@ function keepWorker(w: Worker): void {
     return;
   }
   spare = { worker: w, timer: setTimeout(() => (w.terminate(), (spare = null)), KEEP_MS) };
-}
-
-async function device(): Promise<'webgpu' | 'wasm'> {
-  try {
-    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    if (gpu && (await gpu.requestAdapter())) return 'webgpu';
-  } catch {
-    // No usable WebGPU.
-  }
-  return 'wasm';
 }
 
 /** The vocals as 16 kHz mono. */
@@ -379,7 +358,7 @@ export async function transcribeLyrics(vocals: AudioBuffer, opts: LyricsOptions 
   const regions = voicedRegions(x);
   const wins = windows(regions, x);
   if (!wins.length) return { words: [], lines: [] };
-  const job = { libUrl: LIB_URL, model: MODEL, revision: REVISION, device: await device(), language: opts.language ?? null };
+  const job = { libUrl: LIB_URL, model: MODEL, revision: REVISION, language: opts.language ?? null };
   const cut = (a: number, b: number) => ({ at: a, audio: x.slice(Math.floor(a * SR), Math.min(x.length, Math.ceil(b * SR))) });
   const raw = await listen(
     wins.map(([a, b]) => cut(a, b)),

@@ -182,14 +182,14 @@ function decodeText(bytes: Uint8Array): string {
 
 /** General MIDI program → the closest instrument; real (sampled) ones where they exist. */
 const GM_MAP: [number, string][] = [
-  [2, 'spiano'], [3, 'piano'], [5, 'epiano'], [7, 'clav'], [8, 'celesta'], [9, 'glock'], [10, 'musicbox'], [11, 'vibes'],
-  [12, 'marimba'], [13, 'sxylo'], [14, 'tubular'], [15, 'koto'], [18, 'organ'], [19, 'sorgan'], [20, 'sharmonium'],
+  [2, 'spiano'], [3, 'piano'], [5, 'gepiano'], [6, 'gharpsichord'], [7, 'clav'], [8, 'gcelesta'], [9, 'gglock'], [10, 'gmusicbox'],
+  [11, 'gvibes'], [12, 'gmarimba'], [13, 'sxylo'], [14, 'gbells'], [15, 'koto'], [18, 'organ'], [19, 'sorgan'], [20, 'sharmonium'],
   [21, 'accordion'], [22, 'harmonica'], [23, 'accordion'], [24, 'snylon'], [25, 'sguitar'], [31, 'selectric'],
   [32, 'scontrabass'], [37, 'sebass'], [38, 'fmbass'], [39, 'reese'], [41, 'sviolin'], [42, 'scello'], [43, 'scontrabass'],
-  [44, 'strings'], [45, 'pizz'], [46, 'sharp'], [47, 'deepbass'], [48, 'strings'], [49, 'darkstrings'], [51, 'strings'],
-  [52, 'choir'], [54, 'ooh'], [55, 'stab'], [56, 'strumpet'], [57, 'strombone'], [58, 'stuba'], [59, 'strumpet'],
-  [60, 'shorn'], [63, 'brass'], [67, 'ssax'], [69, 'sclarinet'], [70, 'sbassoon'], [71, 'sclarinet'], [74, 'sflute'],
-  [77, 'panflute'], [79, 'whistle'], [80, 'chip'], [81, 'lead'], [82, 'flute'], [83, 'panflute'], [84, 'lead'], [85, 'ooh'],
+  [44, 'gtremolo'], [45, 'gpizz'], [46, 'sharp'], [47, 'deepbass'], [49, 'gstrings'], [51, 'strings'],
+  [52, 'gchoir'], [53, 'goohs'], [54, 'ooh'], [55, 'stab'], [56, 'strumpet'], [57, 'strombone'], [58, 'stuba'], [59, 'strumpet'],
+  [60, 'shorn'], [61, 'gbrass'], [63, 'brass'], [67, 'ssax'], [69, 'goboe'], [70, 'sbassoon'], [71, 'sclarinet'], [74, 'sflute'],
+  [75, 'gpanflute'], [77, 'panflute'], [78, 'gwhistle'], [79, 'gocarina'], [80, 'chip'], [81, 'lead'], [82, 'flute'], [83, 'panflute'], [84, 'lead'], [85, 'ooh'],
   [86, 'supersaw'], [87, 'lead'], [90, 'pad'], [91, 'choir'], [97, 'pad'], [98, 'bell'], [103, 'pad'], [104, 'sitar'],
   [107, 'koto'], [108, 'kalimba'], [109, 'harmonica'], [110, 'sviolin'], [111, 'sclarinet'], [112, 'glock'], [113, 'musicbox'],
   [114, 'steeldrum'], [115, 'marimba'], [118, 'logdrum'], [119, 'pad'], [127, 'pluck'],
@@ -209,6 +209,8 @@ const INSTRUMENT_TO_GM: Record<string, number> = {
   shorn: 60, stuba: 58, ssax: 65, sflute: 73, sclarinet: 71, sbassoon: 70, sxylo: 13, koto: 107, sitar: 104, pizz: 45,
   kalimba: 108, musicbox: 10, steeldrum: 114, vibes: 11, celesta: 8, tubular: 14, clav: 7, wurli: 4, accordion: 21,
   acid: 38, wobble: 39, fmbass: 38, stab: 55, ooh: 53, vocalchop: 54, whistle: 78, harmonica: 22, panflute: 75,
+  spiano16: 0, gepiano: 4, gharpsichord: 6, gcelesta: 8, gglock: 9, gmusicbox: 10, gvibes: 11, gmarimba: 12, gbells: 14,
+  gtremolo: 44, gpizz: 45, gstrings: 48, gchoir: 52, goohs: 53, gbrass: 61, goboe: 68, gpanflute: 75, gwhistle: 78, gocarina: 79,
 };
 
 const DRUM_NAME_RULES: [RegExp, number][] = [

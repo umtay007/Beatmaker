@@ -8,6 +8,7 @@ import { alignLyrics, transcribeLyrics, whisperCached } from '../audio/lyricsasr
 import { barTimes, parseLyrics, toLrc, toSongLines, type TimedText } from '../core/lyrics';
 import type { Store } from '../core/store';
 import { downloadBlob, h, icon, modal, pickFile, safeName, toast } from './dom';
+import { separateButton } from './separateui';
 
 const fmt = (sec: number) => {
   const cs = Math.max(0, Math.round(sec * 100));
@@ -224,14 +225,21 @@ export function showLyrics(store: Store, engine: AudioEngine): void {
   const alignBtn = h('button', { class: 'btn', title: 'Keeps your words and takes the times from the vocals', onclick: () => runAsr('align') }, icon('sparkle', 15), 'Time my lines from the vocals') as HTMLButtonElement;
   const asrRow = h('div', { class: 'btn-row' }, writeBtn, alignBtn);
   const asr = h('div', { class: 'lyrics-asr' }, asrRow, asrStatus);
+  const sayModel = () =>
+    void whisperCached().then((c) => {
+      asrStatus.textContent = c ? 'Speech recognition runs in this browser (its model is already downloaded).' : 'Speech recognition runs in this browser; its model downloads once the first time (about 100 MB).';
+    });
+  let stopSeparating = () => {};
   if (!stems()) {
     asrRow.hidden = true;
-    asrStatus.textContent = 'Separate the parts (Remake automatically, with “Separate the parts first”) and the lyrics can be written out and timed from the vocals here.';
-  } else {
-    void whisperCached().then((c) => {
-      if (!asrStatus.textContent) asrStatus.textContent = c ? 'Speech recognition runs in this browser (its model is already downloaded).' : 'Speech recognition runs in this browser; its model downloads once the first time (about 150 MB).';
+    const sep = separateButton(engine, asrStatus, () => {
+      sep.el.remove();
+      asrRow.hidden = false;
+      sayModel();
     });
-  }
+    stopSeparating = sep.stop;
+    asr.prepend(sep.el);
+  } else sayModel();
 
   const tapStart = h('button', { class: 'btn btn-primary', onclick: () => void startTap() }, 'Tap to time…');
   const clear = h('button', {
@@ -280,6 +288,7 @@ export function showLyrics(store: Store, engine: AudioEngine): void {
     onClose: () => {
       window.removeEventListener('keydown', onKey, true);
       asrCtrl?.abort();
+      stopSeparating();
       if (tap) engine.pause();
     },
   });

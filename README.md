@@ -4,8 +4,9 @@ Make any beat from scratch in your browser, then turn it into a synced music vid
 
 Beatmaker is a beat maker and a MIDI music-video visualizer (in the spirit of
 [VIDI Studio](https://app.dozingwhale.net/vidi-studio/)) in one app. Drums and most instruments are
-synthesized in real time with the Web Audio API; 38 real, recorded instruments stream in on demand
-when you use them. The visualizer draws each note of your beat as it plays, and you can export the
+synthesized in real time with the Web Audio API; 39 real, recorded instruments stream in on demand
+when you use them. It can also remake a finished song by itself: give it a recording and it writes
+the drums, bass, chords, melody, instruments, mix and timed lyrics as a project you can edit. The visualizer draws each note of your beat as it plays, and you can export the
 result as an MP4 or WebM video.
 
 ## Features
@@ -19,15 +20,16 @@ result as an MP4 or WebM video.
 - **Start blank and program your own.** Melodic tracks use a piano roll with scale highlighting,
   and drum tracks use a step grid. Both have a velocity lane, box selection, copy/paste, duplicate,
   transpose, nudge, quantize, humanize and undo/redo.
-- **84 instruments** in families (Keys, Guitar, Strings, Brass, Woodwind, Bass, Pluck, Mallet, Bell,
+- **85 instruments** in families (Keys, Guitar, Strings, Brass, Woodwind, Bass, Pluck, Mallet, Bell,
   Pad, Lead, Vocal):
-  - **38 real, sampled instruments**: grand piano, pipe organ, harmonium, acoustic, nylon and clean
+  - **39 real, sampled instruments**: grand piano (also with all 16 of its recorded velocity
+    layers, so soft notes sound softer and darker), pipe organ, harmonium, acoustic, nylon and clean
     electric guitar, electric and upright bass, violin, cello, harp, trumpet, trombone, French horn,
     tuba, saxophone, flute, clarinet, bassoon and xylophone, plus ensembles and colours: a string
     section, tremolo and pizzicato strings, choir (aahs and oohs), brass section, oboe, pan flute,
     ocarina, whistle, Rhodes-style electric piano, harpsichord, music box, celesta, glockenspiel,
-    tubular bells, vibraphone and marimba. Only the notes a song uses are
-    downloaded; offline, a matching synth stands in, and exports retry the download first and
+    tubular bells, vibraphone and marimba. Each note varies a touch in level and tuning, so repeated
+    notes don't sound copy-pasted. Only the notes a song uses are downloaded; offline, a matching synth stands in, and exports retry the download first and
     warn you which instruments would still use a stand-in.
   - **Physically modelled plucked strings**: koto, sitar (with its buzzing bridge), pizzicato strings.
   - **Mallets and bells**: kalimba, marimba, vibraphone, steel drum, music box, celesta, tubular
@@ -49,13 +51,22 @@ result as an MP4 or WebM video.
   Double-click the ruler to loop the section under the pointer. Sections export as MIDI markers
   (and markers from a DAW's MIDI come back as sections).
 - **Automation**: the lane under the editor switches (click its name) from note velocities to a
-  curve for the track's volume, pan, high cut, low cut, reverb or echo. Click to add points, drag
+  curve for the track's volume, pan, high cut, low cut, reverb or echo, or to a **sustain pedal**
+  (notes released while it is down ring on until it comes up; MIDI's CC 64 comes in and goes out as
+  this lane). Click to add points, drag
   them, right-click to delete; values move in straight lines between points (filters on a log
   scale). It plays live, in WAV/stem/video exports, and survives loops and seeks.
 - A **sampler** for your own sounds (Instrument → Sampler…): play a one-shot or vocal chop across
   the keyboard, **chop** a phrase or loop at its hits (one chop per key from C3, each cutting off
   the last, and a button that writes the chops back into the track), or play a **loop** stretched to
   the song tempo. With trim, level, attack, release and reverse. Sounds stay in your browser.
+- **Your own soundfonts** (Instrument → Soundfont…): open an `.sf2`, `.sf3` or `.sfz` (with its
+  samples folder) and pick any preset. The file stays in your browser and saves with the project.
+- **Linked loops**: right-click the ruler to make bars a linked loop (over all tracks or one), then
+  fill the song with it or place copies. Edit the notes of any copy and every copy follows, like
+  patterns in a loop-based DAW; unlink a copy to change just that one.
+- **Vocal tracks** (Instrument → Vocal track…): the original's separated vocals, or a recording of
+  your own, played in time with the song and lined up with the original or from bar 1.
 - **Load your own drum packs**: pick (or drop) the folder of any sample pack you have. Files are
   matched to drum voices by name ("Kick 01.wav", "Hats/Open Hat 3.wav", "BD0025.WAV"…), you can
   change any pick with a preview, and the pack is saved in your browser as a kit. Nothing is
@@ -70,10 +81,27 @@ result as an MP4 or WebM video.
 - Per-track **FX** in the editor bar: echo, fine tune, **note tail** (cut a ringing or sustained
   instrument short once each note ends, for staccato plucks), **sidechain ducking** (the track dips on
   every kick and swells back, like a sidechained compressor, with depth and release), a 3-band
-  **EQ** with a sweepable mid, and a **low-cut / high-cut filter** with resonance.
+  **EQ** with a sweepable mid, a **low-cut / high-cut filter** with resonance, and **colour**:
+  saturation, a compressor, chorus, tape wobble, lo-fi (a narrower band and fewer bits) and stereo
+  width.
 
 **Remake an existing beat**
 
+- **Remake a song automatically** (File → Remake a song automatically…). Pick the recording and it
+  works out the tempo, key and tuning; separates it into drums, bass, melody and vocals (Meta's
+  HTDemucs, running in your browser); writes the drums from a beat detector, the bass from its own
+  808 tracker, and the chords and melody from Basic Pitch; tidies each part by its repeats and
+  links the repeats as loops; names the sections; picks the closest instrument and kit for each
+  part with the instrument finder; fits each track's level and tone to its stem; matches the master
+  to the original without its vocals; and can put the original's vocals on a track and write out
+  their lyrics, timed. Nothing is uploaded. The models download once (about 180 MB for separation,
+  100 MB for the lyrics) and it takes a few minutes, longer without a GPU. Then press **B** to
+  compare with the original.
+- **A/B compare** (B, or the A/B button): switch between the original and your remake while both
+  keep playing in sync, level-matched, with both spectra drawn over each other.
+- **Instrument finder** (the search button on a track's bar): renders the track's notes with every
+  instrument (or kit) and ranks them against the original, listening only where that track plays,
+  so you can hear the closest few and pick one.
 - **Load the original track as a reference.** *Detect tempo, key & align grid* finds its BPM,
   first beat (to the millisecond), key and tuning. The waveform then appears behind the editor, so you can program the drums and
   notes by ear while it plays. The *Shift grid* buttons (−1, −½, +½, +1 beat) fix any leftover
@@ -95,7 +123,7 @@ result as an MP4 or WebM video.
 - Files are recognized by their content, so downloads without an extension still open.
 - **Import MIDI** of any song or beat. Channel 10 and tracks named like drums ("kick", "hat", …)
   become drum tracks, and GM programs are mapped to the closest instrument (the real, sampled ones
-  where they exist). Imports keep tempo changes and key signatures.
+  where they exist). Imports keep tempo changes, key signatures and the sustain pedal.
 - **Visualize a real recording:** import the song's MIDI and load its audio. You hear the
   recording and the video follows the MIDI notes, which is the VIDI workflow.
 
@@ -112,13 +140,19 @@ result as an MP4 or WebM video.
   grade, vignette, film grain and scanlines.
 - Overlays: an animated title and subtitle (20 Google Fonts), live **chord detection**, an audio
   spectrum (bars, wave or ring) and a progress bar.
+- **Lyrics** (Visual → Lyrics, or File → Lyrics…), line by line as they are sung: a karaoke sweep,
+  word by word, or whole lines, with the next line below. Paste or load an `.lrc`, `.srt`, `.vtt`
+  or plain text, then time the lines by tapping along. Once the parts are separated, speech
+  recognition (OpenAI's Whisper, in your browser) can write the lyrics out from the vocals, timed,
+  or time the lines you typed. Singing fools it, so check the words.
 - Intro and outro transitions: iris, fade, wipe and zoom.
 - 9 look presets: Neon Pulse, Aurora Flow, Candy Pop, Lo-Fi Tape, Minimal Mono, Morning Sky,
   Mystic Violet, Falling Keys and Club Spectrum. There are also 8 track-color palettes.
 - **Export video** as MP4 or WebM in 16:9, 9:16, 1:1 or 4:5, at 720p up to 4K and 30 or 60 fps.
   You can export the whole song or just the loop, with lead-in and tail.
-- **Export WAV** (rendered offline, sample-aligned to the grid), **export stems** (a WAV per track
-  plus the full mix, in a ZIP; stems skip the master compressor so they add up to the mix), **export MIDI**, and save or open
+- **Export WAV** (rendered offline, sample-aligned to the grid) or **MP3** (256 kbps), **export
+  stems** (a WAV per track plus the full mix, in a ZIP; stems skip the master compressor so they add
+  up to the mix), **export MIDI** (the whole song, or a `.mid` per track in a ZIP), and save or open
   projects as `.json`. A project that uses your own sounds (drum packs, sampler sounds) saves as a
   `.zip` with those sounds inside, so it opens with them in any browser.
 
@@ -146,6 +180,14 @@ To start empty, click **Blank beat**. Click a track on the left to edit it below
 to add notes or drum hits, and drag to paint. Drag a note to move it, drag its right edge to
 resize it, and right-click to erase.
 
+**Remake a song automatically.** Choose **File → Remake a song automatically…**, pick the song and
+press **Remake it**. When it's done, press **B** to switch between the original and the remake, use
+the search button on a track to try other instruments, and fix notes in the editor (edit one pass
+of a linked loop and the others follow).
+
+**Add lyrics.** Open **File → Lyrics…**, paste the words (or load an `.lrc`), press **Tap to time…**
+and press Space as each line starts. They show in the preview and the exported video.
+
 **Remake a song by ear.** Choose **File → Load reference audio…**, then **Detect tempo, key & align
 grid** under *Backing audio*. Add tracks with **+ Drums** or **+ Instrument** and program along with the
 waveform. Turn *Audio volume* down to 0 before exporting if you want only your remake in the file.
@@ -171,15 +213,27 @@ packages, also loaded from jsDelivr: the TR-808 set by Michael Fischer (free, no
 TR-909 set by Jason Baker / Rob Roy Recordings (free to use and share, not to be sold) and the
 TR-707 set by Francois Dion (public domain).
 
+The 16-velocity grand is the [Salamander Grand Piano](https://archive.org/details/SalamanderGrandPianoV3)
+by Alexander Holm (CC BY 3.0), in the MP3 set that [tambien/Piano](https://github.com/tambien/Piano)
+hosts on GitHub Pages.
+
 Note transcription uses [Basic Pitch](https://github.com/spotify/basic-pitch-ts) by Spotify
 (Apache-2.0): its model and TensorFlow.js (Apache-2.0) load from jsDelivr, and its inference
 windowing and note extraction are ported in `src/audio/transcribe.ts`.
+
+Separation uses [HTDemucs](https://github.com/facebookresearch/demucs) by Meta (MIT), in timcsy's
+ONNX export on Hugging Face, run by [ONNX Runtime Web](https://onnxruntime.ai) (MIT). Lyrics use
+[Whisper](https://github.com/openai/whisper) by OpenAI (MIT), in the onnx-community ONNX export with
+word times, run by [transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0).
+MP3 encoding uses [lamejs](https://github.com/zhuker/lamejs) (LGPL-3.0, the @breezystack/lamejs
+build), loaded from jsDelivr when you export an MP3. All of them run in your browser.
 
 ## Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
 | Space / Enter | Play–pause / stop |
+| B | A/B: switch between the original and your remake (with a reference loaded) |
 | L · M · F | Loop · metronome · maximize the preview |
 | K | Computer-keyboard input (Z…M and Q…U play notes, `[` `]` change octave, Esc exits) |
 | R | Arm recording (notes you play while the song runs are recorded, quantized to the grid) |
