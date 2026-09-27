@@ -1,3 +1,4 @@
+import { showLyrics } from './lyricsui';
 import { showRemake } from './remakeui';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
@@ -610,6 +611,33 @@ export class Inspector {
           { type: 'range', k: 'chordSize', label: 'Size', min: 0.4, max: 2.5, step: 0.05, fmt: x },
           { type: 'color', k: 'chordColor', label: 'Color' },
           { type: 'select', k: 'chordPos', label: 'Position', options: ANCHORS },
+        ],
+      },
+      {
+        title: 'Lyrics',
+        toggle: 'lyrics',
+        controls: [
+          {
+            type: 'custom',
+            render: () => {
+              const note = h('p', { class: 'section-note' });
+              const btn = h('button', { class: 'btn', onclick: () => showLyrics(s, this.engine) }, icon('mic', 15), 'Lyrics…');
+              return {
+                el: h('div', null, note, h('div', { class: 'btn-row' }, btn)),
+                refresh: () => {
+                  const n = s.song.lyrics?.length ?? 0;
+                  note.textContent = n ? `${n} timed line${n === 1 ? '' : 's'}.` : 'No lyrics yet: add them, time them by tapping along, or have them written out from the vocals.';
+                },
+              };
+            },
+          },
+          { type: 'seg', k: 'lyricsStyle', label: 'Style', options: [['karaoke', 'Karaoke'], ['words', 'Word by word'], ['line', 'Line']] },
+          { type: 'toggle', k: 'lyricsNext', label: 'Show the next line' },
+          { type: 'select', k: 'lyricsFont', label: 'Font', options: FONTS.map((f) => [f, f]) },
+          { type: 'range', k: 'lyricsSize', label: 'Size', min: 0.4, max: 2.5, step: 0.05, fmt: x },
+          { type: 'color', k: 'lyricsColor', label: 'Color' },
+          { type: 'color', k: 'lyricsHighlight', label: 'Sung color', when: (v) => v.lyricsStyle !== 'line' },
+          { type: 'select', k: 'lyricsPos', label: 'Position', options: ANCHORS },
         ],
       },
       {

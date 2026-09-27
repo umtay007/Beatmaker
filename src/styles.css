@@ -1995,3 +1995,68 @@ button {
   font-family: var(--mono);
   font-size: 11.5px;
 }
+
+/* Lyrics dialog */
+.lyrics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lyrics-box {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font: 12.5px/1.55 var(--mono);
+}
+
+.lyrics-box:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.lyrics-box[readonly] {
+  opacity: 0.7;
+}
+
+.lyrics-status {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.lyrics-tap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  border: 1px solid var(--line-2);
+}
+
+.lyrics-now {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  min-height: 1.3em;
+}
+
+.lyrics-next {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+  min-height: 1.3em;
+}
+
+.lyrics-asr {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

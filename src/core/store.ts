@@ -267,6 +267,21 @@ function normalizeSections(v: unknown, bars: number): Song['sections'] {
   return list.length ? list : undefined;
 }
 
+/** Keep timed lines inside the song, in order, one per tick. */
+function normalizeLyrics(v: unknown, bars: number): Song['lyrics'] {
+  if (!Array.isArray(v)) return undefined;
+  const byTick = new Map<number, NonNullable<Song['lyrics']>[number]>();
+  for (const l of v) {
+    if (!l || !Number.isFinite(l.tick) || typeof l.text !== 'string') continue;
+    const tick = Math.round(l.tick);
+    if (tick < 0 || tick >= bars * BAR) continue;
+    const end = Number.isFinite(l.end) && l.end > tick ? Math.round(l.end) : undefined;
+    byTick.set(tick, { tick, ...(end !== undefined ? { end } : {}), text: l.text.slice(0, 300) });
+  }
+  const list = [...byTick.values()].sort((a, b) => a.tick - b.tick);
+  return list.length ? list : undefined;
+}
+
 /** Keep linked loops with whole-bar lengths and non-overlapping copies inside the song. */
 function normalizeLoops(v: unknown, bars: number, trackIds: Set<string>): Song['loops'] {
   if (!Array.isArray(v)) return undefined;
@@ -424,6 +439,7 @@ export function normalizeSong(song: Partial<Song>): Song {
     tuning: Math.round(num(song.tuning, 0, -100, 100)),
     echoBeats: num(song.echoBeats, 0.75, 0.125, 4),
     sections: normalizeSections(song.sections, bars),
+    lyrics: normalizeLyrics(song.lyrics, bars),
     loops: normalizeLoops(song.loops, bars, new Set((song.tracks ?? []).map((t) => t?.id).filter((id): id is string => typeof id === 'string'))),
     master: {
       eq: DEFAULT_MASTER.eq.map((d, i) => Math.round(num(song.master?.eq?.[i], d, -15, 15) * 2) / 2),

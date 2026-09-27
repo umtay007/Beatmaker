@@ -97,13 +97,17 @@ function bandPower(spec: Float64Array, sr: number, lo: number, hi: number): numb
   return s;
 }
 
-/** Octave-band levels (dB, normalised to the 63 Hz–8 kHz mean), stereo width and RMS in one pass. */
+/**
+ * Octave-band levels (dB, normalised to the 63 Hz–8 kHz mean), stereo width and RMS in one pass.
+ * Width is side over mid above 150 Hz: the bass is mono in nearly every mix, and counting it would
+ * make a mix with a louder 808 read as narrower.
+ */
 export function mixStats(buf: AudioBuffer, from = 0, seconds = 30): { bands: number[]; width: number; rms: number } {
   const m = prepare(buf, from, seconds);
   const { mid, side } = spectra(m);
   const both = mid.map((v, k) => v + side[k]);
   const bands = normBands(EQ_BANDS.map((f) => 10 * Math.log10(bandPower(both, m.sr, f / Math.SQRT2, Math.min(m.sr / 2, f * Math.SQRT2)) + 1e-12)));
-  const width = 10 * Math.log10(bandPower(side, m.sr, 20, m.sr / 2) / (bandPower(mid, m.sr, 20, m.sr / 2) + 1e-12) + 1e-12);
+  const width = 10 * Math.log10(bandPower(side, m.sr, 150, m.sr / 2) / (bandPower(mid, m.sr, 150, m.sr / 2) + 1e-12) + 1e-12);
   let s = 0;
   for (let i = 0; i < m.l.length; i++) s += (m.l[i] * m.l[i] + m.r[i] * m.r[i]) / 2;
   return { bands, width, rms: 10 * Math.log10(s / Math.max(1, m.l.length) + 1e-12) };

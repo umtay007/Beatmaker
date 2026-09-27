@@ -1,6 +1,7 @@
+import { activeLine, singTime } from '../core/lyrics';
 import { detectChord, DRUM_VOICES, keyPrefersFlats } from '../core/theory';
 import type { Timeline } from '../core/timing';
-import type { Song, Track } from '../core/types';
+import type { LyricLine, Song, Track } from '../core/types';
 import type { Anchor, VisualSettings } from './settings';
 
 // ---------------------------------------------------------------------------------------------
@@ -891,6 +892,16 @@ export class Scene {
     const m = base * 0.06;
 
     if (v.spectrum !== 'off') this.drawSpectrum(f, W, H, base);
+    // Room the title and the chord display take at the top and the bottom: the lyrics keep clear of
+    // it (whether or not they are showing at the moment, so the lyrics don't jump).
+    const used = { top: 0, bottom: 0 };
+    const use = (a: Anchor, h: number) => {
+      const vy = this.anchorXY(a, W, H, m).vy;
+      if (vy === -1) used.top = Math.max(used.top, h);
+      if (vy === 1) used.bottom = Math.max(used.bottom, h);
+    };
+    if (v.title && (v.titleText || v.subtitleText)) use(v.titlePos, base * 0.058 * v.titleSize * (v.subtitleText ? 2.17 : 1.5));
+    if (v.chord) use(v.chordPos, base * 0.07 * v.chordSize * 1.4);
 
     if (v.title && (v.titleText || v.subtitleText)) {
       let a = 1;
@@ -972,6 +983,8 @@ export class Scene {
       }
     }
 
+    if (v.lyrics && f.song.lyrics?.length) this.drawLyrics(f, f.song.lyrics, W, H, base, m, used);
+
     if (v.progress && f.songEnd > 0) {
       const p = clamp01(t / f.songEnd);
       const h = Math.max(2, base * 0.004);
@@ -980,6 +993,145 @@ export class Scene {
       ctx.fillStyle = rgba(hexToRgb(v.playheadColor), 0.8);
       ctx.fillRect(0, H - h, W * p, h);
     }
+  }
+
+  /** Break text into lines no wider than maxW (at the current font). */
+  private wrap(text: string, maxW: number): string[] {
+    const out: string[] = [];
+    let cur = '';
+    for (const w of text.split(' ')) {
+      const next = cur ? cur + ' ' + w : w;
+      if (cur && this.ctx.measureText(next).width > maxW) {
+        out.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  private drawLyrics(f: FrameInput, lines: LyricLine[], W: number, H: number, base: number, m: number, used: { top: number; bottom: number }): void {
+    const ctx = this.ctx;
+    const v = f.v;
+    const t = f.t;
+    const al = activeLine(lines, f.timeline, t);
+    if (!al) return;
+    const pos = this.anchorXY(v.lyricsPos, W, H, m);
+    const maxW = pos.align === 'center' ? Math.min(W - 2 * m, W * 0.82) : W * 0.62;
+    let size = base * 0.052 * v.lyricsSize;
+    const font = (px: number) => `700 ${Math.round(px)}px "${v.lyricsFont}", system-ui, sans-serif`;
+    ctx.save();
+    ctx.font = font(size);
+    let rows = this.wrap(al.line.text, maxW);
+    // Long lines: shrink to fit in two rows.
+    for (let i = 0; i < 4 && rows.length > 2; i++) {
+      size *= 0.85;
+      ctx.font = font(size);
+      rows = this.wrap(al.line.text, maxW);
+    }
+    const lh = size * 1.22;
+    const nextSize = size * 0.62;
+    const next = v.lyricsNext && al.next && f.timeline.tickToSec(al.next.tick) - t < 7 ? al.next.text : '';
+    ctx.font = font(nextSize);
+    const nextRows = next ? this.wrap(next, maxW).slice(0, 2) : [];
+    const block = rows.length * lh + nextRows.length * nextSize * 1.25 + (nextRows.length ? size * 0.25 : 0);
+    let y =
+      pos.vy === -1 ? pos.y + used.top + size : pos.vy === 1 ? pos.y - used.bottom - block + size * 0.95 : pos.y - block / 2 + size * 0.9;
+    const el = t - al.t0;
+    const a = clamp01((el + 0.15) / 0.2) * clamp01((al.gone - t) / 0.35);
+    if (a <= 0.001) {
+      ctx.restore();
+      return;
+    }
+    const rgb = hexToRgb(v.lyricsColor);
+    const hi = hexToRgb(v.lyricsHighlight);
+    ctx.textAlign = pos.align;
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = size * 0.3;
+    // A thin dark edge keeps the words readable over bright visuals.
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    const put = (text: string, x: number, y2: number) => {
+      ctx.strokeText(text, x, y2);
+      ctx.fillText(text, x, y2);
+    };
+    ctx.font = font(size);
+    // How far through the line the singing is (0..1), by syllables.
+    const sung = clamp01((t - al.t0) / Math.max(0.2, al.t1 - al.t0));
+    const widths = rows.map((r) => ctx.measureText(r).width);
+    const totalW = widths.reduce((x, y2) => x + y2, 0) || 1;
+    let before = 0;
+    rows.forEach((row, i) => {
+      const w = widths[i];
+      const x0 = pos.align === 'center' ? pos.x - w / 2 : pos.align === 'right' ? pos.x - w : pos.x;
+      if (v.lyricsStyle === 'words') {
+        // Words appear as they are sung (each by its share of the syllables).
+        const words = row.split(' ');
+        const all = al.line.text.split(' ');
+        const weights = all.map((wd) => Math.max(1, singTime(wd) - 0.6));
+        const sum = weights.reduce((x2, y2) => x2 + y2, 0);
+        let start = rows.slice(0, i).reduce((n, r) => n + r.split(' ').length, 0);
+        let acc = weights.slice(0, start).reduce((x2, y2) => x2 + y2, 0) / sum;
+        ctx.textAlign = 'left';
+        let x = x0;
+        for (const wd of words) {
+          const at = acc;
+          acc += weights[start++] / sum;
+          const show = el > 0 ? clamp01((sung - at) / 0.04) : 0;
+          const ww = ctx.measureText(wd + ' ').width;
+          if (show > 0) {
+            ctx.globalAlpha = a * show;
+            ctx.fillStyle = rgba(sung >= acc || sung >= 1 ? rgb : hi, 1);
+            put(wd, x, y + (1 - show) * size * 0.15);
+          }
+          x += ww;
+        }
+        ctx.textAlign = pos.align;
+      } else if (v.lyricsStyle === 'karaoke') {
+        ctx.globalAlpha = a * 0.55;
+        ctx.fillStyle = rgba(rgb, 1);
+        put(row, pos.x, y);
+        // The sung part in the highlight colour, sweeping left to right across the rows.
+        const fill = clamp01((sung * totalW - before) / w);
+        if (fill > 0 && el >= 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0 - size, y - size * 1.1, size + w * fill, size * 1.6);
+          ctx.clip();
+          ctx.globalAlpha = a;
+          ctx.fillStyle = rgba(hi, 1);
+          ctx.fillText(row, pos.x, y);
+          ctx.restore();
+        }
+      } else {
+        const pop = 1 + 0.06 * Math.exp(-Math.max(0, el) * 9);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = rgba(rgb, 1);
+        if (pop > 1.001) {
+          ctx.save();
+          ctx.translate(pos.x, y - size * 0.35);
+          ctx.scale(pop, pop);
+          put(row, 0, size * 0.35);
+          ctx.restore();
+        } else put(row, pos.x, y);
+      }
+      before += w;
+      y += lh;
+    });
+    if (nextRows.length) {
+      y += size * 0.25 - lh + nextSize * 1.25;
+      ctx.font = font(nextSize);
+      ctx.globalAlpha = a * 0.45;
+      ctx.fillStyle = rgba(rgb, 1);
+      ctx.lineWidth = Math.max(1, nextSize * 0.07);
+      for (const row of nextRows) {
+        put(row, pos.x, y);
+        y += nextSize * 1.25;
+      }
+    }
+    ctx.restore();
   }
 
   private drawSpectrum(f: FrameInput, W: number, H: number, base: number): void {

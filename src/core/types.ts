@@ -171,6 +171,16 @@ export interface Song {
   sections?: Section[];
   /** Linked loops: stretches whose copies stay the same (edit one, all follow). */
   loops?: LinkedLoop[];
+  /** Timed lyrics, shown in the visualizer and the exported video. */
+  lyrics?: LyricLine[];
+}
+
+/** A line of lyrics, shown from its tick. */
+export interface LyricLine {
+  tick: number;
+  /** Where the singing of the line stops (else it runs to the next line, within reason). */
+  end?: number;
+  text: string;
 }
 
 export interface LinkedLoop {

@@ -1,20 +1,17 @@
+import { separateStems, separationModelCached } from '../audio/separate';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
 import type { Actions } from './actions';
 import { autoRemake, type Separator } from './autoremake';
 import { h, icon, modal, toast } from './dom';
 
-/** Set once the separation module is available (it loads its model on first use). */
-let separator: Separator | undefined;
-let separatorCached: () => Promise<boolean> = async () => false;
-export function provideSeparator(fn: Separator, cached: () => Promise<boolean>): void {
-  separator = fn;
-  separatorCached = cached;
-}
+/** HTDemucs in the browser (its model downloads once, on first use). */
+const separator: Separator = (buf, onProgress, signal) => separateStems(buf, { onProgress, signal });
+const separatorCached = separationModelCached;
 
 /** "Remake a song automatically": choose the original, a few options, and watch it go. */
 export function showRemake(store: Store, engine: AudioEngine, actions: Actions, onCompare: () => void): void {
-  const opts = { separate: !!separator, thorough: false, keepVocals: false, tidy: true };
+  const opts = { separate: true, thorough: false, keepVocals: false, tidy: true, lyrics: true };
   const fileLine = h('p', { class: 'remake-file' });
   const pick = h('input', { type: 'file', accept: 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac', hidden: true }) as HTMLInputElement;
   const showFile = () => {
@@ -40,10 +37,9 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     box.addEventListener('change', () => set(box.checked));
     return h('label', { class: 'remake-opt' + (disabled ? ' off' : '') }, box, h('span', null, h('strong', null, label), h('small', null, note)));
   };
-  const sepOpt = check('Separate the parts first', 'Much better notes and sounds. The first time, the separation model downloads once (about 175 MB).', () => opts.separate, (v) => (opts.separate = v), !separator);
-  if (!separator) sepOpt.querySelector('small')!.textContent = 'Not available in this build.';
+  const sepOpt = check('Separate the parts first', 'Much better notes and sounds (Meta’s Demucs, running in this browser). The first time, its model downloads once (about 180 MB). Takes a few minutes, longer without a GPU; best on a desktop browser.', () => opts.separate, (v) => (opts.separate = v));
   void separatorCached().then((c) => {
-    if (c && separator) sepOpt.querySelector('small')!.textContent = 'Much better notes and sounds. The separation model is already downloaded.';
+    if (c) sepOpt.querySelector('small')!.textContent = 'Much better notes and sounds (Meta’s Demucs, running in this browser). Its model is already downloaded. Takes a few minutes, longer without a GPU.';
   });
   const status = h('p', { class: 'remake-status' }, '');
   const bar = h('div', { style: { width: '0%' } });
@@ -60,6 +56,7 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     sepOpt,
     check('Try every instrument', 'Slower, sometimes closer. Otherwise a shortlist per part.', () => opts.thorough, (v) => (opts.thorough = v)),
     check('Keep the original vocals', 'Puts the separated vocals on a track of their own (needs “Separate the parts”).', () => opts.keepVocals, (v) => (opts.keepVocals = v)),
+    check('Write out the lyrics', 'Speech recognition (Whisper, in this browser) writes the words from the separated vocals, timed, for the video. Its model downloads once (about 80 MB). Check the words after: singing fools it.', () => opts.lyrics, (v) => (opts.lyrics = v)),
     check('Tidy repeats', 'Loops say the same thing each time: fixes notes the transcription got wrong on some passes.', () => opts.tidy, (v) => (opts.tidy = v)),
     progress,
     status,
@@ -99,7 +96,6 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
       ctrl = null;
       progress.hidden = true;
       body.querySelectorAll('input').forEach((i) => (i.disabled = false));
-      if (!separator) (sepOpt.querySelector('input') as HTMLInputElement).disabled = true;
     }
   });
 }

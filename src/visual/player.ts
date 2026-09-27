@@ -41,11 +41,12 @@ export class VisualPlayer {
 
   private loadFonts(): void {
     const v = this.store.visual;
-    const key = v.titleFont + '|' + v.chordFont;
+    const key = v.titleFont + '|' + v.chordFont + '|' + v.lyricsFont;
     if (key === this.lastFonts) return;
     this.lastFonts = key;
     void ensureFont(v.titleFont);
     void ensureFont(v.chordFont);
+    void ensureFont(v.lyricsFont);
   }
 
   /** Fit the preview frame into the stage, keeping the output aspect ratio. */

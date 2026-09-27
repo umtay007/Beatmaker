@@ -90,6 +90,15 @@ export interface VisualSettings {
   chordColor: string;
   chordPos: Anchor;
 
+  lyrics: boolean;
+  lyricsStyle: 'karaoke' | 'words' | 'line';
+  lyricsFont: string;
+  lyricsSize: number;
+  lyricsColor: string;
+  lyricsHighlight: string;
+  lyricsPos: Anchor;
+  lyricsNext: boolean;
+
   spectrum: 'off' | 'bars' | 'wave' | 'circle';
   spectrumColor: string;
   spectrumSize: number;
@@ -225,6 +234,15 @@ export const DEFAULT_VISUAL: VisualSettings = {
   chordSize: 1,
   chordColor: '#ffffff',
   chordPos: 'tr',
+
+  lyrics: true,
+  lyricsStyle: 'karaoke',
+  lyricsFont: 'Montserrat',
+  lyricsSize: 1,
+  lyricsColor: '#ffffff',
+  lyricsHighlight: '#ffd166',
+  lyricsPos: 'bc',
+  lyricsNext: true,
 
   spectrum: 'off',
   spectrumColor: '#ffffff',
@@ -500,6 +518,9 @@ export function presetSettings(id: string, keep: VisualSettings): VisualSettings
     title: keep.title,
     chord: keep.chord,
     chordSource: keep.chordSource,
+    lyrics: keep.lyrics,
+    lyricsStyle: keep.lyricsStyle,
+    lyricsNext: keep.lyricsNext,
     cameraSource: keep.cameraSource,
     exportRes: keep.exportRes,
     exportFps: keep.exportFps,

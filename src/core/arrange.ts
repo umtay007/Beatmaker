@@ -41,6 +41,10 @@ function shiftFrom(song: Song, at: number, by: number): void {
     for (const pts of Object.values(t.automation ?? {})) for (const p of pts ?? []) if (p.tick >= at) p.tick += by;
   }
   for (const s of song.sections ?? []) if (s.tick >= at) s.tick += by;
+  for (const l of song.lyrics ?? []) {
+    if (l.tick >= at) l.tick += by;
+    if (l.end !== undefined && l.end >= at) l.end += by;
+  }
   for (const c of song.tempoChanges) if (c.tick >= at) c.tick += by;
   for (const l of song.loops ?? []) l.starts = l.starts.map((x) => (x >= at ? x + by : x));
 }
@@ -98,6 +102,11 @@ export function deleteBars(song: Song, from: number, to: number): number {
   const carried = cutSections.length ? cutSections[cutSections.length - 1] : null;
   if (song.sections) song.sections = song.sections.filter((s) => s.tick < a || s.tick >= end);
   song.tempoChanges = song.tempoChanges.filter((c) => c.tick < a || c.tick >= end);
+  if (song.lyrics) {
+    song.lyrics = song.lyrics.filter((l) => l.tick < a || l.tick >= end);
+    for (const l of song.lyrics) if (l.end !== undefined && l.tick < a && l.end > a) l.end = Math.min(l.end, a);
+    if (!song.lyrics.length) delete song.lyrics;
+  }
   unlinkCopiesOver(song, a, end);
   shiftFrom(song, end, -len);
   if (carriedTempo !== null) {
@@ -142,6 +151,11 @@ export function duplicateBars(song: Song, from: number, to: number): number {
   for (const l of song.loops ?? []) {
     const twins = l.starts.filter((x) => x >= a && x + l.length <= a + len).map((x) => x + len);
     l.starts = [...l.starts, ...twins].sort((x, y) => x - y);
+  }
+  const lines = (song.lyrics ?? []).filter((l) => l.tick >= a && l.tick < a + len).map((l) => ({ ...l, tick: l.tick + len, ...(l.end !== undefined ? { end: l.end + len } : {}) }));
+  if (lines.length) {
+    song.lyrics!.push(...lines);
+    song.lyrics!.sort((x, y) => x.tick - y.tick);
   }
   const secs = (song.sections ?? []).filter((s) => s.tick >= a && s.tick < a + len).map((s) => ({ tick: s.tick + len, name: s.name }));
   if (secs.length) {

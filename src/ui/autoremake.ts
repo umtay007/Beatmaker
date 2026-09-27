@@ -12,19 +12,22 @@ import { detectAudioKey } from '../audio/key';
 import { busiestStretch, finderCandidates, findInstrument } from '../audio/finder';
 import { transcribePitches, drumGrid } from '../audio/transcribe';
 import { drumNotes, splitParts } from '../audio/parts';
+import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
-import { renderSong, encodeWav } from '../audio/render';
+import { renderSong } from '../audio/render';
 import { fitTone, ltas } from '../audio/tonefit';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
-import { putFile } from '../core/library';
 import type { Store } from '../core/store';
 import { tidyRepeats } from '../core/tidy';
 import { makeLoop } from '../core/loops';
 import { Timeline } from '../core/timing';
-import { BAR, cloneSong, DEFAULT_SAMPLER, MAX_BARS, newNoteId, newTrackId, STEP, type Note, type Song, type Track } from '../core/types';
+import { BAR, cloneSong, MAX_BARS, newNoteId, newTrackId, STEP, type Note, type Song, type Track } from '../core/types';
 import type { Actions } from './actions';
+import { vocalTrack } from './vocaltrack';
+import { transcribeLyrics } from '../audio/lyricsasr';
+import { barTimes, toSongLines } from '../core/lyrics';
 
 export type StemName = 'drums' | 'bass' | 'other' | 'vocals';
 export type Separator = (buf: AudioBuffer, onProgress: (fraction: number, message: string) => void, signal: AbortSignal) => Promise<Record<StemName, AudioBuffer>>;
@@ -38,6 +41,8 @@ export interface RemakeOptions {
   keepVocals: boolean;
   /** Tidy each part by its repeats. */
   tidy: boolean;
+  /** Write out the lyrics from the vocals, timed (needs the parts separated). */
+  lyrics?: boolean;
 }
 
 export interface RemakeContext {
@@ -69,7 +74,7 @@ export async function autoRemake(
   const buf = engine.backingBuffer;
   if (!buf) throw new Error('Load the original song first');
   const report: string[] = [];
-  const weights = { grid: 3, separate: opts.separate && c.separator ? 40 : 0, notes: 25, tidy: 2, find: 20, tone: 5, mix: 5 };
+  const weights = { grid: 3, separate: opts.separate && c.separator ? 40 : 0, notes: 25, tidy: 2, lyrics: opts.lyrics && opts.separate && c.separator ? 8 : 0, find: 20, tone: 5, mix: 5 };
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   let done = 0;
   const phase = (key: keyof typeof weights, label: string) => {
@@ -137,10 +142,19 @@ export async function autoRemake(
   let chords: Note[] = [];
   let melody: Note[] = [];
   const listen = (label: string, a: number, b: number) => (p: number) => notesStep(a + (b - a) * p, `${label} ${Math.round(p * 100)}%`);
+  const stepTimes = ticks.map((t) => tl.tickToSec(t) - off);
+  // The bass by its own tracker (note models hardly hear an 808); the model's reading if that finds little.
+  notesStep(0.05, 'Following the bass…');
+  await pause();
+  const tracked = await transcribeBass(stems?.bass ?? buf, { stepTimes, stepTicks: ticks, tuning: song.tuning, mix: !stems });
+  aborted(signal);
   if (stems) {
-    const b = await transcribePitches(stems.bass, 0, stems.bass.duration, {}, listen('Listening to the bass…', 0.1, 0.4));
+    if (tracked.length >= 8) bass = tracked;
+    else {
+      const b = await transcribePitches(stems.bass, 0, stems.bass.duration, {}, listen('Listening to the bass…', 0.1, 0.4));
+      bass = splitParts(b.struck, tl, { offset: off, kicks }).bass;
+    }
     aborted(signal);
-    bass = splitParts(b.struck, tl, { offset: off, kicks }).bass;
     const o = await transcribePitches(stems.other, 0, stems.other.duration, {}, listen('Listening to the melody and chords…', 0.4, 1));
     const sp = splitParts(o.notes, tl, { offset: off, kicks });
     // The melodic stem's lowest line is the bottom of its chords (the bass has its own stem).
@@ -149,7 +163,9 @@ export async function autoRemake(
   } else {
     const r = await transcribePitches(buf, 0, buf.duration, {}, listen('Listening for notes…', 0.1, 1));
     const sp = splitParts(r.notes, tl, { offset: off, kicks });
-    bass = splitParts(r.struck, tl, { offset: off, kicks }).bass;
+    // A sub-bass line the tracker follows is an 808 the model would mostly miss.
+    const modelBass = splitParts(r.struck, tl, { offset: off, kicks }).bass;
+    bass = tracked.length >= 8 && median(tracked.map((n) => n.pitch)) < 45 ? tracked : modelBass;
     chords = sp.chords;
     // In the full mix, a "melody" in the voice's range is mostly the vocals transcribed: keep the
     // lines above them (beat melodies usually sit up there).
@@ -210,9 +226,21 @@ export async function autoRemake(
   song.sections = detectSections({ song, mix: buf, offset: off, vocals: stems?.vocals, drums: stems?.drums });
   report.push(`Sections: ${song.sections.map((s) => s.name).join(', ')}`);
   if (opts.keepVocals && stems?.vocals) {
-    const t = await vocalTrack(stems.vocals, song, colors[song.tracks.length % colors.length]);
+    const t = await vocalTrack(stems.vocals, song, colors[song.tracks.length % colors.length], { name: 'Vocals (original)', withOriginal: true });
     song.tracks.push(t);
     report.push('The original vocals are on their own track');
+  }
+  if (weights.lyrics && stems?.vocals) {
+    const lyr = phase('lyrics', 'Writing out the lyrics…');
+    try {
+      const { lines } = await transcribeLyrics(stems.vocals, { signal, bars: barTimes(song), onProgress: (msg, f) => lyr(f, msg) });
+      const timed = toSongLines(song, lines);
+      if (timed.length) song.lyrics = timed;
+      report.push(timed.length ? `Lyrics: ${timed.length} lines written out from the vocals, timed (check the words in Visual → Lyrics)` : 'Lyrics: no singing found in the vocals');
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      report.push(`Lyrics: couldn't write them out (${(e as Error).message})`);
+    }
   }
   store.loadSong(song);
   engine.applySynthMute();
@@ -251,7 +279,9 @@ export async function autoRemake(
           t.instrument = best.id;
           t.volume = Math.round(Math.max(0.02, Math.min(1.5, t.volume * gain)) * 1000) / 1000;
         });
-        report.push(`${t.name}: ${best.label}${res[1] ? ` (next closest: ${res[1].label})` : ''}`);
+        // A near tie: the numbers can't tell them apart, so say so (Find on the track lets you listen).
+        const close = res[1] && res[1].score - best.score < 0.06 * best.score;
+        report.push(`${t.name}: ${best.label}${res[1] ? (close ? ` (a close call with ${res[1].label}: try both with Find on the track)` : ` (next closest: ${res[1].label})`) : ''}`);
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
@@ -348,30 +378,4 @@ function mixStems(parts: AudioBuffer[]): AudioBuffer {
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   return s.length ? s[s.length >> 1] : 40;
-}
-
-/** The separated vocals as a sampler track: one long note playing the stem in time with the grid. */
-async function vocalTrack(vocals: AudioBuffer, song: Song, color: string): Promise<Track> {
-  const id = await putFile('Original vocals.wav', await encodeWav(vocals).arrayBuffer());
-  const tl = new Timeline(song);
-  // Song time 0 is `-audioOffset` seconds into the recording.
-  const lead = Math.max(0, -song.audioOffset);
-  const dur = vocals.duration - lead;
-  return {
-    id: newTrackId(),
-    name: 'Vocals (original)',
-    kind: 'synth',
-    instrument: 'sampler',
-    color,
-    volume: 0.8,
-    pan: 0,
-    reverb: 0,
-    // The sampler follows the song's tuning; cancel it so the vocals stay as recorded.
-    tune: -(song.tuning ?? 0),
-    mute: false,
-    solo: false,
-    visible: true,
-    sampler: { ...DEFAULT_SAMPLER, file: id, name: 'Original vocals', mode: 'pitch', root: 60, start: lead / vocals.duration, end: 1, attack: 0.005, release: 0.2 },
-    notes: [{ id: newNoteId(), pitch: 60, start: 0, dur: Math.max(1, Math.round(tl.secToTick(dur))), vel: 1 }],
-  };
 }
