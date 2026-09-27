@@ -17,6 +17,8 @@ export interface SampledDef {
   version?: string;
   /** FluidR3 GM soundfont: the instrument's folder name (e.g. "string_ensemble_1"). */
   gm?: string;
+  /** Recorded at several velocities (Salamander Grand: v1 softest … v16 hardest): the layers used. */
+  layers?: number[];
   /** Recorded notes, as file names (e.g. "As3" = A#3, "Bb3" = B♭3). */
   notes: string;
   /** Keep every n-th recorded note (dense chromatic sets would mean a lot of downloading). */
@@ -36,6 +38,17 @@ export interface SampledDef {
 }
 
 const FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const SHARP = ['C', 'Cs', 'D', 'Ds', 'E', 'F', 'Fs', 'G', 'Gs', 'A', 'As', 'B'];
+
+/**
+ * Salamander Grand Piano V3 (Alexander Holm, CC BY 3.0) as prepared for Tone.js's piano
+ * (tambien.github.io/Piano): a Yamaha C5 sampled every third key at 16 velocities.
+ */
+function salamander(): SampledDef {
+  const notes: string[] = [];
+  for (let p = 21; p <= 108; p += 3) notes.push(SHARP[p % 12] + (Math.floor(p / 12) - 1));
+  return { id: 'spiano16', label: 'Grand Piano (16 velocities)', group: 'Keys', notes: notes.join(' '), layers: Array.from({ length: 16 }, (_, i) => i + 1), fallback: 'piano', release: 0.45, gain: 0.95, octave: 4 };
+}
 /** A FluidR3 GM instrument recorded over lo..hi (MIDI), sampled every 3 semitones. */
 function gm(id: string, label: string, group: string, name: string, fallback: string, lo: number, hi: number, o: Omit<SampledDef, 'id' | 'label' | 'group' | 'notes' | 'fallback'>): SampledDef {
   const notes: string[] = [];
@@ -64,6 +77,7 @@ export const SAMPLED: SampledDef[] = [
   { id: 'sclarinet', label: 'Clarinet', group: 'Woodwind', pkg: 'clarinet', version: '1.1.2', notes: 'D3 F3 As3 D4 F4 As4 D5 F5 As5 D6 Fs6', fallback: 'flute', attack: 0.03, release: 0.15, gain: 0.7, sustain: true, mono: true, octave: 4 },
   { id: 'sbassoon', label: 'Bassoon', group: 'Woodwind', pkg: 'bassoon', version: '1.1.2', notes: 'G2 A2 C3 G3 A3 C4 E4 G4 A4 C5', fallback: 'brass', attack: 0.03, release: 0.15, gain: 0.75, sustain: true, mono: true, octave: 3 },
   { id: 'sxylo', label: 'Xylophone', group: 'Mallet', pkg: 'xylophone', version: '1.1.2', notes: 'G4 C5 G5 C6 G6 C7 G7 C8', fallback: 'marimba', release: 0.4, gain: 0.8, velocityTone: true, octave: 5 },
+  salamander(),
   // FluidR3 GM soundfont (every key is recorded; a note every 3 semitones keeps downloads small).
   gm('gstrings', 'String Section', 'Strings', 'string_ensemble_1', 'strings', 36, 96, { attack: 0.03, release: 0.35, gain: 0.7, sustain: true, octave: 4 }),
   gm('gtremolo', 'Tremolo Strings', 'Strings', 'tremolo_strings', 'strings', 36, 96, { attack: 0.03, release: 0.3, gain: 0.7, sustain: true, octave: 4 }),
@@ -136,6 +150,7 @@ const GM_ON_NPM = new Set(['string_ensemble_1', 'tremolo_strings', 'pizzicato_st
 
 /** Where a recording can be fetched, best first. */
 function urls(def: SampledDef, name: string): string[] {
+  if (def.layers) return [`https://tambien.github.io/Piano/audio/${name}.mp3`];
   if (def.gm) {
     const pages = `https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/${def.gm}-mp3/${name}.mp3`;
     return GM_ON_NPM.has(def.gm) ? [`https://cdn.jsdelivr.net/npm/soundfont-for-samplers@0.0.3/FluidR3_GM/${def.gm}-mp3/${name}.mp3`, pages] : [pages];
@@ -273,24 +288,42 @@ function load(def: SampledDef, name: string): Promise<AudioBuffer | null> {
   return p;
 }
 
-/** Fetch the samples needed to play these pitches. Resolves when they are ready (or failed). */
-export function ensureSampled(id: string, pitches: Iterable<number>): Promise<void> {
+/** The velocity layer a note plays (for instruments recorded at several velocities). */
+function layerOf(def: SampledDef, vel: number): number | null {
+  const L = def.layers;
+  if (!L?.length) return null;
+  return L[Math.min(L.length - 1, Math.floor(Math.max(0, Math.min(0.999, vel)) * L.length))];
+}
+
+/** The file a note plays: its nearest recorded key (and velocity layer). */
+function fileOf(def: SampledDef, rec: Recorded, vel: number): string {
+  const l = layerOf(def, vel);
+  return l === null ? rec.name : `${rec.name}v${l}`;
+}
+
+/** Fetch the samples needed to play these notes. Resolves when they are ready (or failed). */
+export function ensureSampled(id: string, notes: Iterable<{ pitch: number; vel: number }>): Promise<void> {
   const def = SAMPLED_BY_ID.get(id);
   if (!def) return Promise.resolve();
   const names = new Set<string>();
-  for (const p of pitches) names.add(nearest(def, Math.round(p)).name);
+  for (const n of notes) names.add(fileOf(def, nearest(def, Math.round(n.pitch)), n.vel));
   return Promise.all([...names].map((n) => load(def, n))).then(() => undefined);
 }
 
-function sampleFor(def: SampledDef, pitch: number): { buf: AudioBuffer; root: number; lead: number } | null {
+function sampleFor(def: SampledDef, pitch: number, vel: number): { buf: AudioBuffer; root: number; lead: number } | null {
   const rec = nearest(def, Math.round(pitch));
-  const key = def.id + '/' + rec.name;
+  const name = fileOf(def, rec, vel);
+  const key = def.id + '/' + name;
   const buf = buffers.get(key);
-  if (!buf) {
-    void load(def, rec.name);
-    return null;
+  if (buf) return { buf, root: rec.pitch, lead: leads.get(key) ?? 0 };
+  void load(def, name);
+  // Another velocity of the same key, while this one downloads, rather than a stand-in.
+  if (def.layers) {
+    const want = layerOf(def, vel)!;
+    const near = [...def.layers].sort((a, b) => Math.abs(a - want) - Math.abs(b - want)).map((l) => `${def.id}/${rec.name}v${l}`).find((k) => buffers.has(k));
+    if (near) return { buf: buffers.get(near)!, root: rec.pitch, lead: leads.get(near) ?? 0 };
   }
-  return { buf, root: rec.pitch, lead: leads.get(key) ?? 0 };
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -311,9 +344,14 @@ export function playSample(
   def: SampledDef,
   a: { time: number; pitch: number; dur: number | null; vel: number; glideFrom?: number },
 ): SampleVoice | null {
-  const s = sampleFor(def, a.pitch);
+  const s = sampleFor(def, a.pitch, a.vel);
   if (!s) return null;
-  const rate = (p: number) => Math.pow(2, (p - s.root) / 12);
+  // No two strikes quite alike: a hair of detune and level per note (fixed by time and key, so
+  // renders repeat exactly), the way a player never hits a key twice the same.
+  const h = Math.abs(Math.sin(a.time * 12.9898 + a.pitch * 78.233) * 43758.5453) % 1;
+  const h2 = Math.abs(Math.sin(a.time * 39.3468 + a.pitch * 11.135) * 24634.6345) % 1;
+  const vary = 1 + (h2 - 0.5) * 0.08;
+  const rate = (p: number) => Math.pow(2, (p - s.root + (h - 0.5) * 0.04) / 12);
   const t0 = a.time;
   const rel = ctx.createGain();
   rel.connect(out);
@@ -326,7 +364,8 @@ export function playSample(
     lp.connect(rel);
     dest = lp;
   }
-  const peak = def.gain * Math.pow(Math.max(0.05, a.vel), 1.3);
+  // Layered recordings carry their own dynamics; the others get them from the gain curve.
+  const peak = vary * def.gain * (def.layers ? 0.55 + 0.45 * a.vel : Math.pow(Math.max(0.05, a.vel), 1.3));
   const attack = def.attack ?? 0.004;
   const srcs: AudioBufferSourceNode[] = [];
   const startSource = (at: number, offset: number, fadeIn: number, until: number | null) => {
@@ -393,12 +432,12 @@ export function playSample(
 }
 
 /** Fetch every sample the song's tracks need. */
-export function ensureSongSamples(tracks: { kind: string; instrument: string; tune?: number; notes: { pitch: number }[] }[]): Promise<void> {
+export function ensureSongSamples(tracks: { kind: string; instrument: string; tune?: number; notes: { pitch: number; vel: number }[] }[]): Promise<void> {
   const jobs: Promise<void>[] = [];
   for (const t of tracks) {
     if (t.kind !== 'synth' || !SAMPLED_BY_ID.has(t.instrument)) continue;
     const shift = (t.tune ?? 0) / 100;
-    jobs.push(ensureSampled(t.instrument, new Set(t.notes.map((n) => Math.round(n.pitch + shift)))));
+    jobs.push(ensureSampled(t.instrument, t.notes.map((n) => ({ pitch: Math.round(n.pitch + shift), vel: n.vel }))));
   }
   return Promise.all(jobs).then(() => undefined);
 }
@@ -407,14 +446,14 @@ export function ensureSongSamples(tracks: { kind: string; instrument: string; tu
  * Instruments whose recordings for these tracks' notes aren't loaded (a download failed): they
  * would play a synth stand-in. Returns their labels.
  */
-export function missingSamples(tracks: { kind: string; instrument: string; tune?: number; notes: { pitch: number }[] }[]): string[] {
+export function missingSamples(tracks: { kind: string; instrument: string; tune?: number; notes: { pitch: number; vel: number }[] }[]): string[] {
   const out = new Set<string>();
   for (const t of tracks) {
     const def = t.kind === 'synth' ? SAMPLED_BY_ID.get(t.instrument) : undefined;
     if (!def) continue;
     const shift = (t.tune ?? 0) / 100;
     for (const n of t.notes) {
-      if (!buffers.has(def.id + '/' + nearest(def, Math.round(n.pitch + shift)).name)) {
+      if (!buffers.has(def.id + '/' + fileOf(def, nearest(def, Math.round(n.pitch + shift)), n.vel))) {
         out.add(def.label);
         break;
       }

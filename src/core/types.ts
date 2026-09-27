@@ -78,7 +78,7 @@ export interface TrackFx {
 }
 
 /** Track settings that can be automated. */
-export type AutoParam = 'volume' | 'pan' | 'lpf' | 'hpf' | 'reverb' | 'echo';
+export type AutoParam = 'volume' | 'pan' | 'lpf' | 'hpf' | 'reverb' | 'echo' | 'pedal';
 
 export interface AutoPoint {
   tick: number;

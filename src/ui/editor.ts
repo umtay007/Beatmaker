@@ -1258,7 +1258,15 @@ export class Editor {
     }
     ctx.beginPath();
     ctx.moveTo(GUTTER, this.laneY(def, pts[0].value));
-    for (const p of pts) ctx.lineTo(this.tickToX(p.tick), this.laneY(def, p.value));
+    let prevY = this.laneY(def, pts[0].value);
+    for (const p of pts) {
+      const x = this.tickToX(p.tick);
+      const y = this.laneY(def, p.value);
+      // On/off lanes (the pedal) jump at each point instead of ramping.
+      if (def.step) ctx.lineTo(x, prevY);
+      ctx.lineTo(x, y);
+      prevY = y;
+    }
     ctx.lineTo(W, this.laneY(def, pts[pts.length - 1].value));
     ctx.stroke();
     ctx.globalAlpha = 0.12;

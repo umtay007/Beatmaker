@@ -18,6 +18,8 @@ interface RawTrack {
   name: string;
   notes: RawNote[];
   programs: Map<number, number>;
+  /** Sustain pedal (CC 64) changes per channel (64 and up is down). */
+  pedals: Map<number, { tick: number; down: boolean }[]>;
 }
 
 interface ParsedMidi {
@@ -92,7 +94,7 @@ export function parseMidi(buf: ArrayBuffer): ParsedMidi {
       ti--;
       continue;
     }
-    const track: RawTrack = { name: '', notes: [], programs: new Map() };
+    const track: RawTrack = { name: '', notes: [], programs: new Map(), pedals: new Map() };
     const open = new Map<number, { tick: number; vel: number }[]>();
     let tick = 0;
     let status = 0;
@@ -147,6 +149,12 @@ export function parseMidi(buf: ArrayBuffer): ParsedMidi {
         if (on) track.notes.push({ tick: on.tick, dur: Math.max(1, tick - on.tick), pitch: d1, vel: on.vel, channel: ch });
       } else if (type === 0xc0) {
         if (!track.programs.has(ch)) track.programs.set(ch, d1);
+      } else if (type === 0xb0 && d1 === 64) {
+        const list = track.pedals.get(ch) ?? [];
+        const down = d2 >= 64;
+        // Only the changes (half-pedal streams repeat the same state).
+        if ((list[list.length - 1]?.down ?? false) !== down) list.push({ tick, down });
+        track.pedals.set(ch, list);
       }
     }
     // Close hanging notes.
@@ -291,6 +299,8 @@ export function midiToSong(buf: ArrayBuffer, fileName: string, opts: ImportOptio
           vel: Math.max(0.05, Math.min(1, n.vel / 127)),
         };
       });
+      // The sustain pedal becomes the track's pedal lane.
+      const pedal = kind === 'synth' ? rt.pedals.get(ch) : undefined;
       tracks.push({
         id: newTrackId(),
         name: name.slice(0, 40),
@@ -304,6 +314,7 @@ export function midiToSong(buf: ArrayBuffer, fileName: string, opts: ImportOptio
         solo: false,
         visible: true,
         notes,
+        ...(pedal?.length ? { automation: { pedal: pedal.map((e) => ({ tick: toTick(e.tick), value: e.down ? 1 : 0 })) } } : {}),
       });
     }
   }
@@ -422,19 +433,28 @@ export function songToMidi(song: Song): Uint8Array {
     const tn = textBytes(t.name);
     data.push(0, 0xff, 0x03, ...vlq(tn.length), ...tn);
     if (t.kind === 'synth') data.push(0, 0xc0 | ch, INSTRUMENT_TO_GM[t.instrument] ?? 0);
-    const evs: { tick: number; on: boolean; pitch: number; vel: number }[] = [];
+    // At the same tick: note-offs first, then pedal changes, then note-ons.
+    const evs: { tick: number; order: number; bytes: number[] }[] = [];
     for (const n of t.notes) {
       const v = Math.max(1, Math.min(127, Math.round(n.vel * 127)));
       // Bake swing into the ticks: other apps would otherwise play the groove straight.
       const on = Math.round(tl.swingTick(n.start));
       const off = Math.max(on + 1, Math.round(tl.swingTick(n.start + Math.max(1, n.dur))));
-      evs.push({ tick: on, on: true, pitch: n.pitch, vel: v });
-      evs.push({ tick: off, on: false, pitch: n.pitch, vel: 0 });
+      evs.push({ tick: on, order: 2, bytes: [0x90 | ch, n.pitch & 127, v] });
+      evs.push({ tick: off, order: 0, bytes: [0x80 | ch, n.pitch & 127, 0] });
     }
-    evs.sort((a, b) => a.tick - b.tick || (a.on === b.on ? 0 : a.on ? 1 : -1));
+    if (t.kind === 'synth') {
+      let down = false;
+      for (const p of t.automation?.pedal ?? []) {
+        if (p.value >= 0.5 === down) continue;
+        down = !down;
+        evs.push({ tick: Math.round(tl.swingTick(p.tick)), order: 1, bytes: [0xb0 | ch, 64, down ? 127 : 0] });
+      }
+    }
+    evs.sort((a, b) => a.tick - b.tick || a.order - b.order);
     let prev = 0;
     for (const e of evs) {
-      data.push(...vlq(e.tick - prev), (e.on ? 0x90 : 0x80) | ch, e.pitch & 127, e.vel);
+      data.push(...vlq(e.tick - prev), ...e.bytes);
       prev = e.tick;
     }
     data.push(0, 0xff, 0x2f, 0);

@@ -12,6 +12,8 @@ export interface AutoParamDef {
   max: number;
   /** Frequencies: interpolate and draw on a log scale. */
   log?: boolean;
+  /** On/off lanes (the sustain pedal): a value holds until the next point, no ramps. */
+  step?: boolean;
   /** The track's value when this lane has no points. */
   base(t: Track): number;
   fmt(v: number): string;
@@ -26,7 +28,19 @@ export const AUTO_PARAMS: AutoParamDef[] = [
   { id: 'hpf', label: 'Low cut', min: HPF_OFF, max: 5000, log: true, base: (t) => t.hpf ?? HPF_OFF, fmt: (v) => (v <= HPF_OFF * 1.01 ? 'open' : hz(v)) },
   { id: 'reverb', label: 'Reverb', min: 0, max: 1, base: (t) => t.reverb, fmt: (v) => `${Math.round(v * 100)}%` },
   { id: 'echo', label: 'Echo', min: 0, max: 1, base: (t) => t.echo ?? 0, fmt: (v) => `${Math.round(v * 100)}%` },
+  { id: 'pedal', label: 'Sustain pedal', min: 0, max: 1, step: true, base: () => 0, fmt: (v) => (v >= 0.5 ? 'down' : 'up') },
 ];
+
+/** Whether the sustain pedal is down at a tick. */
+export function pedalDown(pts: AutoPoint[] | undefined, tick: number): boolean {
+  return !!pts?.length && valueAt(AUTO_BY_ID.get('pedal')!, pts, tick) >= 0.5;
+}
+
+/** The first tick after `tick` where the pedal comes up (Infinity if it never does). */
+export function pedalUpAfter(pts: AutoPoint[], tick: number): number {
+  for (const p of pts) if (p.tick > tick && p.value < 0.5) return p.tick;
+  return Infinity;
+}
 
 export const AUTO_BY_ID = new Map(AUTO_PARAMS.map((p) => [p.id, p]));
 
@@ -56,6 +70,7 @@ export function valueAt(def: AutoParamDef, pts: AutoPoint[], tick: number): numb
   }
   const a = pts[lo];
   const b = pts[hi];
+  if (def.step) return a.value;
   const f = b.tick === a.tick ? 1 : (tick - a.tick) / (b.tick - a.tick);
   return fromUnit(def, toUnit(def, a.value) + f * (toUnit(def, b.value) - toUnit(def, a.value)));
 }

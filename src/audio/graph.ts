@@ -1,9 +1,9 @@
 import { loadUserFont, userFont } from './userfonts';
 import { playSoundFont } from './soundfont';
 import { buildFx, fxShape, type FxChain } from './trackfx';
-import { AUTO_PARAMS, lanes, valueAt, type AutoParamDef } from '../core/automation';
+import { AUTO_PARAMS, lanes, pedalDown, pedalUpAfter, valueAt, type AutoParamDef } from '../core/automation';
 import { Timeline } from '../core/timing';
-import { DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
+import { BAR, DUCK_RELEASE, HPF_OFF, LPF_OFF, type Note, type Song, type Track } from '../core/types';
 import { EQ_BANDS } from './analyze';
 import { instrumentFor, type Voice } from './instruments';
 import { playSampler } from './sampler';
@@ -387,6 +387,7 @@ export class Graph {
     const t0 = tl.secToTick(from);
     const t1 = tl.secToTick(to);
     for (const [def, pts] of lanes(track)) {
+      if (def.id === 'pedal') continue; // shapes note lengths (buildEvents), not a mixer setting
       const p = this.autoParam(b, def.id);
       const map = (v: number) => {
         if (def.id === 'volume') return audible ? v : 0;
@@ -422,6 +423,8 @@ export class Graph {
         return b.send.gain;
       case 'echo':
         return b.echo.gain;
+      case 'pedal':
+        throw new Error('The pedal lane has no mixer setting');
     }
   }
 
@@ -440,10 +443,14 @@ export function buildEvents(song: Song, tl: Timeline): SchedEvent[] {
   for (const track of song.tracks) {
     const notes = [...track.notes].sort((a, b) => a.start - b.start || a.pitch - b.pitch);
     const mono = track.kind === 'synth' && !!instrumentFor(track.instrument).mono;
+    const pedal = track.kind === 'synth' ? track.automation?.pedal : undefined;
     let prev: SchedEvent | null = null;
     for (const note of notes) {
       const t = tl.tickToSec(note.start);
-      const end = tl.tickToSec(note.start + Math.max(1, note.dur));
+      let endTick = note.start + Math.max(1, note.dur);
+      // Held by the sustain pedal: the note rings on until the pedal comes up.
+      if (pedal?.length && pedalDown(pedal, endTick)) endTick = Math.min(pedalUpAfter(pedal, endTick), song.bars * BAR);
+      const end = tl.tickToSec(endTick);
       const ev: SchedEvent = { t, end, track, note };
       if (mono && prev) {
         const prevEndTick = prev.note.start + prev.note.dur;
