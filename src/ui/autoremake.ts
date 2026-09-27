@@ -243,6 +243,8 @@ export async function autoRemake(
     }
   }
   store.loadSong(song);
+  // The video's title follows the new song, as it does for any song opened.
+  store.setVisual({ titleText: song.name, subtitleText: song.artist || store.visual.subtitleText });
   engine.applySynthMute();
   aborted(signal);
 
