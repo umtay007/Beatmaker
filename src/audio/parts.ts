@@ -125,6 +125,39 @@ export function splitParts(raw: PitchNote[], tl: Timeline, o: PartOptions): Part
   return { bass: withIds(bass), chords: withIds(chords), melody: withIds(melody) };
 }
 
+/**
+ * Held notes the transcriber chopped into pieces: the same key restruck within `mergeGap` ticks of
+ * the last piece's end is one note, and a note then holds on into a gap of up to `fillGap` ticks
+ * before whatever comes next. (Half of a pad or lead line's "notes" are the restarts of a note
+ * that never stopped; played as separate plucks they sound like repeating notes.)
+ */
+export function holdNotes(notes: Note[], mergeGap: number, fillGap: number): Note[] {
+  const byKey = new Map<number, Note[]>();
+  for (const n of [...notes].sort((a, b) => a.start - b.start)) byKey.set(n.pitch, [...(byKey.get(n.pitch) ?? []), n]);
+  const merged: Note[] = [];
+  for (const list of byKey.values()) {
+    let cur: Note | null = null;
+    for (const n of list) {
+      if (cur && n.start - (cur.start + cur.dur) <= mergeGap) {
+        cur.dur = Math.max(cur.start + cur.dur, n.start + n.dur) - cur.start;
+        cur.vel = Math.max(cur.vel, n.vel);
+      } else {
+        if (cur) merged.push(cur);
+        cur = { ...n };
+      }
+    }
+    if (cur) merged.push(cur);
+  }
+  merged.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
+  const starts = [...new Set(merged.map((n) => n.start))];
+  for (const n of merged) {
+    const end = n.start + n.dur;
+    const next = starts.find((s) => s > n.start && s >= end);
+    if (next !== undefined && next - end <= fillGap) n.dur = next - n.start;
+  }
+  return merged;
+}
+
 /** Drum notes from the grid detector's hits. `ticks[i]` is the tick of step i. */
 export function drumNotes(steps: DrumStep[], ticks: number[]): Note[] {
   const out: Note[] = [];

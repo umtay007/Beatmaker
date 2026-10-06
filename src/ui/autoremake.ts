@@ -11,7 +11,7 @@
 import { detectAudioKey } from '../audio/key';
 import { busiestStretch, busyStretches, finderCandidates, findInstrument } from '../audio/finder';
 import { transcribePitches, drumGrid } from '../audio/transcribe';
-import { drumNotes, splitParts } from '../audio/parts';
+import { drumNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
@@ -179,6 +179,9 @@ export async function autoRemake(
     // lines above them (beat melodies usually sit up there).
     melody = sp.melody.filter((n) => n.pitch >= 72);
   }
+  // Chords and melody are held notes the transcriber chops into restarts: rejoin them.
+  chords = holdNotes(chords, 4 * STEP, 4 * STEP);
+  melody = holdNotes(melody, 4 * STEP, 4 * STEP);
   aborted(signal);
 
   // 4. Tidy and sections
