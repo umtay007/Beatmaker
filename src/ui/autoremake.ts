@@ -19,6 +19,7 @@ import { renderSong } from '../audio/render';
 import { Attacks, compareRemake, describeComparison } from '../audio/compare';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
+import { followLevels } from '../audio/follow';
 import { fitTone, ltas } from '../audio/tonefit';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
@@ -419,6 +420,26 @@ export async function autoRemake(
     } catch (e) {
       console.warn('VST sounds failed', e);
       report.push(`VST sounds: not used (${(e as Error).message})`);
+    }
+  }
+  // Each part rises and falls with the original's through the song (a pad that enters for the hook,
+  // drums that thin out in a break): the volume lane follows the original's level bar by bar.
+  if (stems) {
+    step('Following the original’s loudness bar by bar…', 0.94);
+    try {
+      const live = store.song.tracks.filter((t) => !t.mute);
+      const of = (...roles: string[]) => live.filter((t) => roles.includes(roleOf.get(t.id) ?? ''));
+      const parts = [
+        { name: 'drums', tracks: of('drums'), stem: stems.drums },
+        { name: 'chords and melody', tracks: of('chords', 'melody'), stem: stems.other },
+        { name: 'bass', tracks: of('bass'), stem: stems.bass },
+      ].filter((p) => p.tracks.length);
+      const moved = await followLevels(store.song, parts, off, (t, lane) => store.update(() => (t.automation = { ...t.automation, volume: lane })));
+      report.push(`Levels follow the original bar by bar (bars changed by 2 dB or more: ${parts.map((p, i) => `${p.name} ${moved[i]}`).join(', ')})`);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('Following levels failed', e);
+      report.push(`Levels: left as they were (${(e as Error).message})`);
     }
   }
   const mix = phase('mix', 'Matching the mix…');

@@ -98,7 +98,31 @@ export async function buildKitFromLibrary(c: KitContext): Promise<string[]> {
       return s;
     };
     const before = await partScore(solo(c.drums.instrument), c.stem, c.offset, 'drums', spans);
-    const after = await partScore(solo(trial.id), c.stem, c.offset, 'drums', spans);
+    // Balance the voices: each level is nudged up or down while the drums match the original better.
+    const levelsNow = trial.samples!.levels!;
+    const score = async (lv: Record<number, number>) => {
+      trial.samples!.levels = lv;
+      registerKit(trial); // (drops the kit's cached sounds)
+      return partScore(solo(trial.id), c.stem, c.offset, 'drums', spans);
+    };
+    let after = await score(levelsNow);
+    let lv = { ...levelsNow };
+    for (let round = 0; round < 2; round++) {
+      for (const v of chosen.keys()) {
+        c.progress('Balancing the drums…', 0.98 + 0.02 * ((round * chosen.size + [...chosen.keys()].indexOf(v)) / (2 * chosen.size)));
+        for (const f of [0.6, 1.6]) {
+          const next = { ...lv, [v]: Math.max(0.08, Math.min(1.5, lv[v] * f)) };
+          const s = await score(next);
+          if (s > after + 0.4) {
+            after = s;
+            lv = next;
+          }
+        }
+      }
+    }
+    trial.samples!.levels = lv;
+    Object.assign(levels, lv);
+    registerKit(trial);
     const names = [...chosen.keys()].map((v) => `${NAMES[v] ?? v}: ${base(picks[v].replace(/\\/g, '/'))}`).join(', ');
     if (after > before + 1) {
       // Keep it: the recordings go into the library, so the project carries them.

@@ -168,6 +168,9 @@ anyway**.
   whole song), the project (`.beatmaker.zip`, to open and change anything) and a report of what it
   found. The folder opens when it's done. It is the instrumental: no vocals and no lyrics unless
   you ask (`--vocals`, `--lyrics`).
+- Each part follows the original's loudness bar by bar (a volume lane per track), so a pad that
+  enters for the hook or drums that thin out in a break do the same in the remake, and a drum kit
+  built from your own samples has its voices balanced against the original's drum part.
 - It separates the parts, tries a shortlist of mostly recorded instruments for each part (trying
   every one lets synth pads beat the strings they sound like), and settles close calls by
   comparing over three parts of the song. The chords and melody share one stem, so their sounds
