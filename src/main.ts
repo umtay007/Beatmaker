@@ -3,6 +3,7 @@ import { AudioEngine } from './audio/engine';
 import { transcribeLyrics } from './audio/lyricsasr';
 import { separateStems } from './audio/separate';
 import { compareRemake } from './audio/compare';
+import { activations, extractNotes, toModelRate, transcribePitches } from './audio/transcribe';
 import { findInstrument, spectrogram, resampled, mono, clampFloor } from './audio/finder';
 import { renderSong } from './audio/render';
 import { restoreUserKits } from './audio/packs';
@@ -270,4 +271,4 @@ if (app_) {
 }
 
 // Expose for debugging / automated tests.
-(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong };
+(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches };

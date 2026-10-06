@@ -29,7 +29,7 @@ export interface DesktopApi {
   /** The VST sounds picked so far, by role (melody, drums). */
   vstSounds(): Promise<Record<string, { name: string; plugin: string }>>;
   /** Play notes through the picked sounds: a WAV per role (44.1 kHz stereo from song time 0), or an error. */
-  vstRender(job: { duration: number; parts: { role: string; notes: { p: number; s: number; e: number; v: number }[] }[] }): Promise<{ files?: Record<string, Uint8Array>; error?: string }>;
+  vstRender(job: { duration: number; parts: { role: string; sound?: string; notes: { p: number; s: number; e: number; v: number }[] }[] }): Promise<{ files?: Record<string, Uint8Array>; error?: string }>;
   /** The drum one-shots in the sample folder set with --kits (path to read, and path inside the folder). */
   kitFiles(): Promise<{ path: string; rel: string }[]>;
   ready(): void;

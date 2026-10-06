@@ -65,7 +65,7 @@ function log(...parts) {
 function parseArgs(argv) {
   const songs = [];
   // Instrumental by default: no lyrics, no vocals.
-  const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true };
+  const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true, hidden: false, vst: true };
   let out = null;
   let quit = false;
   let pick = null;
@@ -78,6 +78,8 @@ function parseArgs(argv) {
     else if (a === '--lyrics') options.lyrics = true;
     else if (a === '--vocals') options.vocals = true;
     else if (a === '--no-tidy') options.tidy = false;
+    else if (a === '--hidden') options.hidden = true; // no window shown: for jobs left running in the background
+    else if (a === '--no-vst') options.vst = false;
     else if (a === '--quick') options.quick = true; // analysis and report only, no exports
     else if (a === '--no-video') options.video = false;
     else if (a === '--stems') options.stems = true;
@@ -291,7 +293,7 @@ async function vstSounds() {
     return {};
   }
 }
-ipcMain.handle('vst-sounds', vstSounds);
+ipcMain.handle('vst-sounds', () => (cli.options.vst === false ? {} : vstSounds()));
 
 /** job = { duration, parts: [{ role, notes: [{ p, s, e, v }], channel?, shift? }] } → { role: WAV bytes } (or { error }). */
 ipcMain.handle('vst-render', async (_e, job) => {
@@ -300,7 +302,7 @@ ipcMain.handle('vst-render', async (_e, job) => {
   if (!py) return { error: "Python with pedalboard isn't available (set BEATMAKER_PYTHON, or install Python)" };
   const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-vst-'));
   try {
-    const parts = job.parts.filter((p) => sounds[p.role]).map((p) => ({ ...p, soundDir: path.join(vstDir(), p.role) }));
+    const parts = job.parts.filter((p) => sounds[p.sound ?? p.role]).map((p) => ({ ...p, soundDir: path.join(vstDir(), p.sound ?? p.role) }));
     await fsp.writeFile(path.join(tmp, 'job.json'), JSON.stringify({ duration: job.duration, outDir: tmp, parts }));
     const r = await run(py[0], [...py.slice(1), vstScript(), 'render', path.join(tmp, 'job.json')], { onLine: (l) => log('vst', l.slice(0, 300)) });
     if (r.code !== 0) return { error: `The VST host failed: ${r.out.trim().split('\n').slice(-3).join(' ').slice(0, 300)}` };
@@ -496,6 +498,7 @@ function createWindow() {
     backgroundColor: '#0a0c12',
     title: 'Beatmaker',
     autoHideMenuBar: true,
+    show: !cli.options.hidden,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

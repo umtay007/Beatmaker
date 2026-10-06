@@ -320,3 +320,113 @@ export function describeComparison(c: Comparison, sectionAt: (bar: number) => st
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Attacks: does a sound start its notes the way the original does?
+
+const REL_LO = -24;
+const REL_BINS = 73; // semitones from 24 below a note to 48 above it
+const bandSemitone = (b: number) => 69 + 12 * Math.log2(bandHz(b) / 440);
+
+/**
+ * How the original's spectrum rises at the moment each of a track's notes starts, laid out by
+ * semitones from the note (its own pitch, then its overtones at +12, +19, +24…). A sound that
+ * plays the same notes with the same kind of attack (struck against held, plucked against bowed)
+ * makes the same shape; a held tone that never restarts shows no rise at all. Unlike the overall
+ * match score this tells apart instruments that play the same notes.
+ */
+function attackProfile(spec: Spec, notes: { p: number; s: number }[]): Float64Array | null {
+  const n = spec.db.length;
+  if (n < 12) return null;
+  const dt = spec.times[1] - spec.times[0];
+  const acc = new Float64Array(REL_BINS);
+  const cnt = new Float64Array(REL_BINS);
+  let used = 0;
+  for (const nt of notes) {
+    const i = Math.round((nt.s - spec.times[0]) / dt);
+    if (i < 5 || i >= n - 4) continue;
+    used++;
+    for (let b = 0; b < N_BANDS; b++) {
+      let post = -1e9;
+      let pre = -1e9;
+      for (let k = i + 1; k <= i + 3; k++) post = Math.max(post, spec.db[k][b]);
+      for (let k = i - 5; k <= i - 2; k++) pre = Math.max(pre, spec.db[k][b]);
+      const rel = Math.round(bandSemitone(b) - nt.p - REL_LO);
+      if (rel >= 0 && rel < REL_BINS) {
+        acc[rel] += post - pre;
+        cnt[rel]++;
+      }
+    }
+  }
+  if (used < 8) return null;
+  const mean = acc.map((v, i) => v / Math.max(1, cnt[i]));
+  const med = [...mean].sort((a, b) => a - b)[REL_BINS >> 1];
+  return mean.map((v) => v - med);
+}
+
+function correlation(a: Float64Array, b: Float64Array): number {
+  const ma = a.reduce((s, v) => s + v, 0) / a.length;
+  const mb = b.reduce((s, v) => s + v, 0) / b.length;
+  let sab = 0;
+  let saa = 0;
+  let sbb = 0;
+  for (let i = 0; i < a.length; i++) {
+    sab += (a[i] - ma) * (b[i] - mb);
+    saa += (a[i] - ma) ** 2;
+    sbb += (b[i] - mb) ** 2;
+  }
+  return saa > 1e-9 && sbb > 1e-9 ? sab / Math.sqrt(saa * sbb) : 0;
+}
+
+/** Scores sounds by how their attacks match one stem's, for one set of notes. */
+export class Attacks {
+  private target: Float64Array | null = null;
+  private constructor(
+    private spans: { from: number; to: number }[],
+    private notes: { p: number; s: number }[],
+  ) {}
+
+  /** `notes` are in song seconds; only those inside `spans` are used (cheaper than the whole song). */
+  static async of(stem: AudioBuffer, offset: number, notes: { p: number; s: number }[], spans: { from: number; to: number }[]): Promise<Attacks | null> {
+    const a = new Attacks(spans, notes.filter((n) => spans.some((sp) => n.s >= sp.from && n.s < sp.to)));
+    const profs: Float64Array[] = [];
+    for (const sp of spans) {
+      const spec = spectrogram(await resampled(stem, sp.from - offset, sp.to - offset), RATE, sp.from);
+      clampFloor(spec);
+      const p = attackProfile(spec, a.notes);
+      if (p) profs.push(p);
+    }
+    if (!profs.length) return null;
+    // Rises are measured per stretch and averaged: the same as measuring the notes of all of them.
+    a.target = profs[0].map((_, i) => profs.reduce((s, p) => s + p[i], 0) / profs.length);
+    return a;
+  }
+
+  /** Same, for audio that is already the whole part from song time 0 (a VST render). */
+  async scoreAudio(audio: AudioBuffer): Promise<number> {
+    const profs: Float64Array[] = [];
+    for (const sp of this.spans) {
+      const spec = spectrogram(await resampled(audio, sp.from, sp.to), RATE, sp.from);
+      clampFloor(spec);
+      const p = attackProfile(spec, this.notes);
+      if (p) profs.push(p);
+    }
+    if (!profs.length || !this.target) return -1;
+    return correlation(this.target, profs[0].map((_, i) => profs.reduce((s, p) => s + p[i], 0) / profs.length));
+  }
+
+  /** −1..1 for the sound `solo` (a song of just that track) plays; higher is more alike. */
+  async score(solo: Song): Promise<number> {
+    const profs: Float64Array[] = [];
+    for (const sp of this.spans) {
+      const pre = Math.min(4, sp.from);
+      const buf = await renderSong(solo, { from: sp.from - pre, to: sp.to, tail: 0, dynamics: false, sampleRate: RATE });
+      const spec = spectrogram(mono(buf, pre, pre + (sp.to - sp.from)), RATE, sp.from);
+      clampFloor(spec);
+      const p = attackProfile(spec, this.notes);
+      if (p) profs.push(p);
+    }
+    if (!profs.length || !this.target) return -1;
+    return correlation(this.target, profs[0].map((_, i) => profs.reduce((s, p) => s + p[i], 0) / profs.length));
+  }
+}

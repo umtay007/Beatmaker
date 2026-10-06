@@ -16,7 +16,7 @@ import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
 import { renderSong } from '../audio/render';
-import { compareRemake, describeComparison, partScore } from '../audio/compare';
+import { Attacks, compareRemake, describeComparison } from '../audio/compare';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
 import { fitTone, ltas } from '../audio/tonefit';
@@ -194,7 +194,9 @@ export async function autoRemake(
   const loopsOf = new Map<string, { period: number; groups: number[][] }>();
   for (const p of parts) {
     const inRange = p.notes.filter((n) => n.start < endTick);
-    if (opts.tidy && inRange.length >= 8) {
+    // Drums and bass repeat bar for bar (and score better tidied); the chords and melody of a song
+    // that is only loosely a loop lose notes and gain others when copied across it.
+    if (opts.tidy && (p.role === 'drums' || p.role === 'bass') && inRange.length >= 8) {
       const r = tidyRepeats(inRange, { bars: song.bars });
       p.notes = r.notes;
       if (r.tidied) {
@@ -327,52 +329,56 @@ export async function autoRemake(
     }
   }
 
-  // Chords and melody share one stem, so a sound is judged best by how the two sound together:
-  // try each one's best few against the stem, over the stretches where the melody plays most.
-  const settle = phase('settle', 'Settling the melody and chords together…');
+  // The chords and melody are one stem, and a stem of struck notes is not a stem of held ones: each
+  // track's sound is chosen by how its notes START compared with the original's (struck, plucked,
+  // bowed…), over the stretches where it plays most. Which notes it plays doesn't change with the sound.
+  const settle = phase('settle', 'Choosing how the chords and melody sound…');
   const lead = store.song.tracks.find((t) => roleOf.get(t.id) === 'melody');
   const pads = store.song.tracks.find((t) => roleOf.get(t.id) === 'chords');
-  if (stems && lead && pads && shortlist.has(lead.id) && shortlist.has(pads.id)) {
-    try {
-      const spans = busyStretches(store.song, lead, 8, 3);
-      const together = (): Promise<number> => {
-        const solo = cloneSong(store.song);
-        solo.tracks = solo.tracks.filter((x) => x.id === lead.id || x.id === pads.id);
-        for (const x of solo.tracks) x.mute = x.solo = false;
-        return partScore(solo, stems.other, off, 'other', spans);
-      };
-      const volumeOf = (o: { gain: number; base: number }) => Math.round(Math.max(0.02, Math.min(1.5, o.base * o.gain)) * 1000) / 1000;
-      const before = { lead: lead.instrument, pads: pads.instrument };
-      const first = await together();
-      let bestScore = first;
-      for (const [k, t] of [lead, pads].entries()) {
-        const options = shortlist.get(t.id)!;
-        let pick = options.find((o) => o.id === t.instrument) ?? options[0];
-        for (const [oi, o] of options.entries()) {
+  if (stems && lead && pads) {
+    const before = { lead: lead.instrument, pads: pads.instrument };
+    const tl2 = new Timeline(store.song);
+    for (const [k, t] of [lead, pads].entries()) {
+      try {
+        const role = roleOf.get(t.id)! as 'chords' | 'melody';
+        const spans = busyStretches(store.song, t, 8, 3);
+        const att = await Attacks.of(stems.other, off, t.notes.map((n) => ({ p: n.pitch, s: tl2.tickToSec(n.start) })), spans);
+        if (!att) continue;
+        const known = new Map((shortlist.get(t.id) ?? []).map((o) => [o.id, o]));
+        const ids = [...new Set([t.instrument, ...known.keys(), ...SHORTLIST[role]])];
+        const solo = (id: string): Song => {
+          const x = cloneSong(store.song);
+          x.tracks = x.tracks.filter((y) => y.id === t.id);
+          Object.assign(x.tracks[0], { instrument: id, mute: false, solo: false, eqLow: 0, eqMid: 0, eqHigh: 0 });
+          return x;
+        };
+        let best = { id: t.instrument, score: -2 };
+        let current = -2;
+        for (const [i, id] of ids.entries()) {
           aborted(signal);
-          settle((k + oi / options.length) / 2);
-          if (o.id === pick.id) continue;
-          store.update(() => {
-            t.instrument = o.id;
-            t.volume = volumeOf(o);
-          });
-          const s = await together();
-          if (s > bestScore + 1) {
-            bestScore = s;
-            pick = o;
+          settle((k + i / ids.length) / 2);
+          let sc = -2;
+          try {
+            sc = await att.score(solo(id));
+          } catch {
+            continue; // a recording that can't be had right now
           }
+          if (id === t.instrument) current = sc;
+          if (sc > best.score) best = { id, score: sc };
         }
-        store.update(() => {
-          t.instrument = pick.id;
-          t.volume = volumeOf(pick);
-        });
+        // A new sound has to start its notes clearly more like the original's than the current one.
+        if (best.id !== t.instrument && best.score > current + 0.03) {
+          const o = known.get(best.id);
+          store.update(() => {
+            t.instrument = best.id;
+            if (o) t.volume = Math.round(Math.max(0.02, Math.min(1.5, o.base * o.gain)) * 1000) / 1000;
+          });
+          report.push(`${t.name}: ${instrumentFor(best.id).label}, whose notes start like the original's (${best.score.toFixed(2)}; ${instrumentFor(before[k === 0 ? 'lead' : 'pads']).label}: ${current.toFixed(2)})`);
+        }
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e;
+        report.push(`${t.name}: kept the sound found one by one (${(e as Error).message})`);
       }
-      if (lead.instrument !== before.lead || pads.instrument !== before.pads) {
-        report.push(`Chords and melody together: ${instrumentFor(pads.instrument).label} and ${instrumentFor(lead.instrument).label} (was ${instrumentFor(before.pads).label} and ${instrumentFor(before.lead).label}; matches the original ${Math.round(first)} → ${Math.round(bestScore)} of 100 over the busiest bars)`);
-      }
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') throw e;
-      report.push(`Chords and melody: kept the sounds found one by one (${(e as Error).message})`);
     }
   }
 
