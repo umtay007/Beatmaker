@@ -17,6 +17,7 @@ import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
 import { renderSong } from '../audio/render';
 import { compareRemake, describeComparison, partScore } from '../audio/compare';
+import { applyVstSounds } from './vstparts';
 import { fitTone, ltas } from '../audio/tonefit';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
@@ -388,6 +389,16 @@ export async function autoRemake(
     }
   }
   aborted(signal);
+  // Your own VST sounds, where you've picked them (the desktop app): they replace the built-in melody and drums.
+  if (stems) {
+    step('Playing the melody and drums through your VST sounds…', 0.9);
+    try {
+      report.push(...(await applyVstSounds({ store, roleOf, stems, offset: off, colors })));
+    } catch (e) {
+      console.warn('VST sounds failed', e);
+      report.push(`VST sounds: not used (${(e as Error).message})`);
+    }
+  }
   const mix = phase('mix', 'Matching the mix…');
   mix(0);
   const sound = actions.analyzeReference();

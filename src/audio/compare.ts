@@ -267,9 +267,10 @@ export async function compareRemake(
     if (only && !only.includes(p.part)) continue;
     onProgress?.(pi / PARTS.length);
     const solo = cloneSong(song);
-    solo.tracks = solo.tracks.filter((t) => p.roles.includes(roleOf.get(t.id) as Role));
+    // (A muted track is one another has replaced, such as a VST sound standing in for a built-in one.)
+    solo.tracks = solo.tracks.filter((t) => !t.mute && p.roles.includes(roleOf.get(t.id) as Role));
     if (!solo.tracks.length) continue;
-    for (const t of solo.tracks) t.mute = t.solo = false;
+    for (const t of solo.tracks) t.solo = false;
     const R = spectrogram(mono(await renderSong(solo, { from: 0, to: seconds, tail: 0, dynamics: false, sampleRate: RATE }), 0, seconds), RATE, 0);
     const S = spectrogram(await resampled(stems[p.part], -offset, seconds - offset), RATE, 0);
     clampFloor(R);

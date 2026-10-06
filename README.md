@@ -189,6 +189,14 @@ anyway**.
   (`--stems` also saves the separated parts as WAVs, `--quick` stops after the analysis and the
   comparison, with nothing exported, `--quit` closes it when done).
 - The video is recorded at a steady 30 frames a second even with the window minimized or covered.
+- **Your own VST instruments.** Pick a sound once per part in the plugin's own window:
+  `Beatmaker.exe --pick-sound melody --plugin "C:pathAnalog Lab V.vst3"` (and `drums`), choose a
+  sound and close the window. From then on the melody and drums of every remake are played through
+  those sounds (offline, with the notes found in the song) and replace the built-in ones, and the
+  report says how closely each matches the original compared with the built-in sound; a sound that
+  matches clearly worse is left out. It needs Python with `pedalboard` (the app installs it with
+  pip if it's missing; set `BEATMAKER_PYTHON` to use a particular Python). The picks are kept in
+  `%APPDATA%Beatmakerst`.
 - The log is `%APPDATA%\Beatmaker\beatmaker.log`, and the download cache is next to it.
 
 Build it with `cd desktop && npm install && npm run dist:win` (`dist:linux` for Linux). The

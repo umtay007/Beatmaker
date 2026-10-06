@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
+const { spawn } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 
 const APP_DIR = path.join(__dirname, 'app');
@@ -67,6 +68,8 @@ function parseArgs(argv) {
   const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true };
   let out = null;
   let quit = false;
+  let pick = null;
+  let plugin = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
@@ -77,11 +80,13 @@ function parseArgs(argv) {
     else if (a === '--no-video') options.video = false;
     else if (a === '--stems') options.stems = true;
     else if (a === '--quit') quit = true;
+    else if (a === '--pick-sound') pick = argv[++i] ?? null;
+    else if (a === '--plugin') plugin = argv[++i] ?? null;
     else if (a === '--out') out = argv[++i] ?? null;
     else if (a.startsWith('--out=')) out = a.slice(6);
     else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
   }
-  return { songs, options, out, quit };
+  return { songs, options, out, quit, pick: pick && { role: pick, plugin } };
 }
 
 // The first entries are the program (and the app folder when run as `electron .`).
@@ -187,6 +192,99 @@ ipcMain.handle('choose-songs', async () => {
   return r.filePaths.length;
 });
 ipcMain.on('version', (e) => (e.returnValue = app.getVersion()));
+
+// ---------------------------------------------------------------------------------------------
+// Your VST instruments: notes played through a sound you picked once (see vst/host.py)
+
+const vstDir = () => path.join(app.getPath('userData'), 'vst');
+const vstScript = () => path.join(app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked') : __dirname, 'vst', 'host.py');
+
+function run(cmd, args, opts = {}) {
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn(cmd, args, { windowsHide: !opts.show, ...opts.spawn });
+    } catch (e) {
+      resolve({ code: -1, out: String(e) });
+      return;
+    }
+    const take = (d) => {
+      out += d;
+      if (opts.onLine) for (const l of String(d).split(/\r?\n/)) if (l.trim()) opts.onLine(l);
+    };
+    child.stdout?.on('data', take);
+    child.stderr?.on('data', take);
+    child.on('error', (e) => resolve({ code: -1, out: String(e) }));
+    child.on('close', (code) => resolve({ code, out }));
+  });
+}
+
+let python = null;
+/** A Python that can run the host: the one in BEATMAKER_PYTHON, else `py -3` or `python`, installing pedalboard if it's missing. */
+async function findPython() {
+  if (python) return python;
+  const candidates = [process.env.BEATMAKER_PYTHON && [process.env.BEATMAKER_PYTHON], ['py', '-3'], ['python']].filter(Boolean);
+  const has = (c) => run(c[0], [...c.slice(1), '-c', 'import pedalboard, numpy']);
+  let runs = null;
+  for (const c of candidates) {
+    if ((await has(c)).code === 0) return (python = c);
+    if (!runs && (await run(c[0], [...c.slice(1), '-c', 'pass'])).code === 0) runs = c;
+  }
+  if (runs) {
+    log('installing pedalboard for', runs.join(' '));
+    await run(runs[0], [...runs.slice(1), '-m', 'pip', 'install', '--user', '--quiet', 'pedalboard', 'numpy']);
+    if ((await has(runs)).code === 0) return (python = runs);
+  }
+  return null;
+}
+
+/** The sounds picked so far: { melody: { name, plugin }, drums: … } (only those whose files are still there). */
+async function vstSounds() {
+  try {
+    const cfg = JSON.parse(await fsp.readFile(path.join(vstDir(), 'sounds.json'), 'utf8'));
+    const out = {};
+    for (const [role, s] of Object.entries(cfg)) if (fs.existsSync(s.plugin) && fs.existsSync(path.join(vstDir(), s.state))) out[role] = { name: s.name, plugin: s.plugin };
+    return out;
+  } catch {
+    return {};
+  }
+}
+ipcMain.handle('vst-sounds', vstSounds);
+
+/** job = { duration, parts: [{ role, notes: [{ p, s, e, v }], channel?, shift? }] } → { role: WAV bytes } (or { error }). */
+ipcMain.handle('vst-render', async (_e, job) => {
+  const sounds = await vstSounds();
+  const py = await findPython();
+  if (!py) return { error: "Python with pedalboard isn't available (set BEATMAKER_PYTHON, or install Python)" };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-vst-'));
+  try {
+    const parts = job.parts.filter((p) => sounds[p.role]).map((p) => ({ ...p, plugin: sounds[p.role].plugin, state: path.join(vstDir(), `${p.role}.state`) }));
+    await fsp.writeFile(path.join(tmp, 'job.json'), JSON.stringify({ duration: job.duration, outDir: tmp, parts }));
+    const r = await run(py[0], [...py.slice(1), vstScript(), 'render', path.join(tmp, 'job.json')], { onLine: (l) => log('vst', l.slice(0, 300)) });
+    if (r.code !== 0) return { error: `The VST host failed: ${r.out.trim().split('\n').slice(-3).join(' ').slice(0, 300)}` };
+    const files = {};
+    for (const p of parts) files[p.role] = await fsp.readFile(path.join(tmp, `${p.role}.wav`));
+    return { files };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+/** `Beatmaker.exe --pick-sound melody [--plugin X.vst3]`: open the plugin, choose a sound, close it. */
+async function pickSound({ role, plugin }) {
+  const py = await findPython();
+  const saved = (await vstSounds())[role];
+  const target = plugin || (saved && saved.plugin);
+  if (!py || !target) {
+    log('pick-sound: need Python with pedalboard and a --plugin path');
+    return;
+  }
+  const r = await run(py[0], [...py.slice(1), vstScript(), 'pick', role, target, vstDir()], { show: true, onLine: (l) => log('vst', l.slice(0, 300)) });
+  log('pick-sound done', r.code);
+}
 // Progress of the song being remade, on the taskbar button and in the title.
 ipcMain.on('progress', (_e, fraction, label) => {
   if (!win || !busy) return;
@@ -413,6 +511,10 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle('app', serveApp);
     protocol.handle('https', serveHttps);
     log('start', app.getVersion(), process.platform, process.arch, JSON.stringify(cli));
+    if (cli.pick) {
+      void pickSound(cli.pick).finally(() => app.quit());
+      return;
+    }
     createWindow();
     if (cli.songs.length) void enqueue(cli.songs, cli.options);
   });

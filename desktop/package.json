@@ -20,7 +20,8 @@
     "appId": "studio.beatmaker.desktop",
     "productName": "Beatmaker",
     "directories": { "output": "release" },
-    "files": ["main.cjs", "preload.cjs", "app/**/*", "package.json"],
+    "files": ["main.cjs", "preload.cjs", "app/**/*", "vst/**/*", "package.json"],
+    "asarUnpack": ["vst/**/*"],
     "asar": true,
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }],
