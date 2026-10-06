@@ -185,18 +185,20 @@ anyway**.
 - It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation, and
   a larger speech model for the lyrics (Whisper small rather than base).
 - From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>]
-  [--all-instruments] [--lyrics] [--vocals] [--kits <folder>] [--no-video] [--no-tidy] [--stems]
+  [--all-instruments] [--lyrics] [--vocals] [--kits <folder>] [--no-vst] [--no-video] [--no-tidy]
+  [--stems] [--hidden]
   [--quick] [--quit]`
   (`--stems` also saves the separated parts as WAVs, `--quick` stops after the analysis and the
-  comparison, with nothing exported, `--quit` closes it when done).
+  comparison, with nothing exported, `--hidden` shows no window while it works, `--quit`
+  closes it when done).
 - The video is recorded at a steady 30 frames a second even with the window minimized or covered.
 - **Your own VST instruments.** Pick a sound once for the melody:
   `Beatmaker.exe --pick-sound melody --plugin "C:\path\Analog Lab V.vst3"`. The plugin's own window
   opens: choose a sound and close it, and the sound is played at every pitch and saved as samples in
   `%APPDATA%\Beatmaker\vst` (plugins don't remember a sound chosen in their window, so it is captured
-  as audio right away). From then on every remake plays its melody with those samples and says how
-  closely the part matches the original compared with the built-in sound; a sound that matches
-  clearly worse is left out. Needs Python with `pedalboard` for picking (the app installs it with pip
+  as audio right away). From then on every remake plays its chords and melody (usually one instrument) with
+  those samples. The report says how the attacks of its notes compare with the original's, and a
+  sound whose attacks run against the original's is left out. Needs Python with `pedalboard` for picking (the app installs it with pip
   if it's missing; set `BEATMAKER_PYTHON` to use a particular Python).
 - **Your own drum samples.** `Beatmaker.exe --kits "D:\Drum kits"` (remembered after the first time)
   makes each remake try every kick, snare, hat and clap in that folder (unpack the zips first;
