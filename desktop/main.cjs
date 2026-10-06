@@ -1,0 +1,398 @@
+/**
+ * Beatmaker desktop: the web app in a window of its own, plus what a browser can't do.
+ *
+ * - Drop songs on Beatmaker.exe (or run `Beatmaker.exe song.mp3 …`): each is remade and everything
+ *   is exported into a folder next to it, with no clicks.
+ * - Every download the app makes (instrument recordings, the separation, transcription and speech
+ *   models, libraries) goes through a disk cache with retries: a flaky connection can't swap a
+ *   recording for a synth stand-in, and after the first time it all works offline.
+ * - The page is cross-origin isolated, so the models can use every CPU core.
+ */
+const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell, Menu } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const fsp = fs.promises;
+const crypto = require('node:crypto');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+
+const APP_DIR = path.join(__dirname, 'app');
+const AUDIO = /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma|aif|aiff|webm|mp4|m4v|mov)$/i;
+/** Hosts the app downloads from: cached on disk, retried, and allowed into the isolated page. */
+const CACHED_HOSTS = new Set(['cdn.jsdelivr.net', 'gleitz.github.io', 'tambien.github.io', 'huggingface.co', 'fonts.googleapis.com', 'fonts.gstatic.com']);
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.woff2': 'font/woff2',
+};
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } },
+]);
+
+// ---------------------------------------------------------------------------------------------
+// Log (in the app's data folder: beatmaker.log)
+
+let logFile = null;
+function log(...parts) {
+  const line = `[${new Date().toISOString()}] ${parts.join(' ')}\n`;
+  try {
+    logFile ??= path.join(app.getPath('userData'), 'beatmaker.log');
+    fs.appendFileSync(logFile, line);
+  } catch {
+    // No log is no reason to stop.
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Command line: songs to remake and options
+
+function parseArgs(argv) {
+  const songs = [];
+  const options = { thorough: true, lyrics: true, video: true, stems: false };
+  let out = null;
+  let quit = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--quick') options.thorough = false;
+    else if (a === '--no-lyrics') options.lyrics = false;
+    else if (a === '--no-video') options.video = false;
+    else if (a === '--stems') options.stems = true;
+    else if (a === '--quit') quit = true;
+    else if (a === '--out') out = argv[++i] ?? null;
+    else if (a.startsWith('--out=')) out = a.slice(6);
+    else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
+  }
+  return { songs, options, out, quit };
+}
+
+// The first entries are the program (and the app folder when run as `electron .`).
+const cli = parseArgs(process.argv.slice(app.isPackaged ? 1 : 2));
+
+/** Where a song's results go: a folder next to it, or under Documents if that isn't writable. */
+async function outDirFor(song, root = cli.out) {
+  const name = `${path.parse(song).name} - Beatmaker`.replace(/[<>:"/\\|?*]/g, '_');
+  const tries = [root ? path.join(path.resolve(root), name) : path.join(path.dirname(song), name), path.join(app.getPath('documents'), 'Beatmaker', name)];
+  for (const dir of tries) {
+    try {
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.access(dir, fs.constants.W_OK);
+      return dir;
+    } catch {
+      // Try the next place.
+    }
+  }
+  return tries[tries.length - 1];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Jobs: one song at a time
+
+let win = null;
+let rendererReady = false;
+let busy = null;
+let nextId = 1;
+const queue = [];
+const finished = [];
+
+async function enqueue(songs, options = cli.options) {
+  for (const song of songs) queue.push({ id: nextId++, path: song, name: path.basename(song), outDir: await outDirFor(song), options });
+  log('queued', songs.length, 'song(s)');
+  pump();
+}
+
+function pump() {
+  if (!rendererReady || busy || !win) return;
+  const job = queue.shift();
+  if (!job) {
+    if (!finished.length) return;
+    const last = finished[finished.length - 1];
+    if (cli.quit) app.quit();
+    else if (last.ok) void shell.openPath(last.outDir);
+    finished.length = 0;
+    return;
+  }
+  busy = job;
+  log('start', job.path, '->', job.outDir);
+  win.webContents.send('job', job);
+}
+
+ipcMain.on('renderer-ready', () => {
+  rendererReady = true;
+  pump();
+});
+
+ipcMain.on('job-done', async (_e, id, result) => {
+  const job = busy && busy.id === id ? busy : null;
+  busy = null;
+  if (job) {
+    log('done', job.path, result.ok ? `ok, ${result.files.length} files` : `failed: ${result.error}`);
+    if (!result.ok) await fsp.writeFile(path.join(job.outDir, 'error.txt'), `Beatmaker couldn't finish ${job.name}:\n${result.error}\n`).catch(() => {});
+    finished.push({ ...job, ok: result.ok });
+  }
+  pump();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Files
+
+const safeFileName = (n) => String(n).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 180) || 'file';
+
+ipcMain.handle('read-file', (_e, p) => fsp.readFile(p));
+ipcMain.handle('write-file', async (_e, dir, name, data) => {
+  await fsp.mkdir(dir, { recursive: true });
+  const file = path.join(dir, safeFileName(name));
+  await fsp.writeFile(file, Buffer.from(data));
+  return file;
+});
+ipcMain.handle('save-as', async (_e, name, data) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), safeFileName(name)) });
+  if (r.canceled || !r.filePath) return false;
+  await fsp.writeFile(r.filePath, Buffer.from(data));
+  return true;
+});
+ipcMain.handle('open-folder', (_e, dir) => shell.openPath(dir));
+ipcMain.handle('out-dir-for', (_e, song) => outDirFor(song, null));
+ipcMain.handle('choose-songs', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Songs to remake',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma', 'aiff', 'webm', 'mp4'] }],
+  });
+  if (r.canceled) return 0;
+  await enqueue(r.filePaths);
+  return r.filePaths.length;
+});
+ipcMain.on('version', (e) => (e.returnValue = app.getVersion()));
+
+// ---------------------------------------------------------------------------------------------
+// The page (app://beatmaker/…), cross-origin isolated
+
+async function serveApp(req) {
+  const { pathname, search } = new URL(req.url);
+  // jsDelivr files through the app's own origin (and the cache): ONNX Runtime needs its code and
+  // its worker threads same-origin to run multi-threaded.
+  if (pathname.startsWith('/cdn/')) {
+    const res = await serveHttps(new Request(`https://cdn.jsdelivr.net/${pathname.slice(5)}${search}`, { method: req.method, headers: req.headers }));
+    const headers = new Headers(res.headers);
+    headers.set('cross-origin-resource-policy', 'same-origin');
+    headers.set('cross-origin-embedder-policy', 'require-corp');
+    return new Response(res.body, { status: res.status, headers });
+  }
+  const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
+  const file = path.normalize(path.join(APP_DIR, rel));
+  if (!file.startsWith(APP_DIR)) return new Response('Not found', { status: 404 });
+  try {
+    const body = await fsp.readFile(file);
+    return new Response(body, {
+      headers: {
+        'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+        'cross-origin-opener-policy': 'same-origin',
+        'cross-origin-embedder-policy': 'require-corp',
+        'cross-origin-resource-policy': 'same-origin',
+      },
+    });
+  } catch {
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Downloads: a disk cache with retries
+
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-expose-headers': 'content-length, content-range, accept-ranges, content-type, etag',
+  'cross-origin-resource-policy': 'cross-origin',
+  'timing-allow-origin': '*',
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const cacheDir = () => path.join(app.getPath('userData'), 'downloads');
+const inflight = new Map();
+
+function cacheKey(href) {
+  const u = new URL(href);
+  // The app adds ?retry=N to retry a failed module import: the same file.
+  u.searchParams.delete('retry');
+  return crypto.createHash('sha256').update(u.href).digest('hex');
+}
+
+async function readMeta(file) {
+  try {
+    const m = JSON.parse(await fsp.readFile(file + '.json', 'utf8'));
+    const st = await fsp.stat(file);
+    return st.size === m.size ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fonts only change how the page looks: never hold it up waiting for them. */
+const NICE_TO_HAVE = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
+
+/** Download a file into the cache, retrying dropped connections and server errors. */
+async function download(href, file) {
+  await fsp.mkdir(cacheDir(), { recursive: true });
+  const tries = NICE_TO_HAVE.has(new URL(href).hostname) ? 1 : 8;
+  let last = null;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    const tmp = `${file}.part${process.pid}-${attempt}`;
+    try {
+      const res = await net.fetch(href, { bypassCustomProtocolHandlers: true });
+      if (res.status >= 500 || res.status === 429 || res.status === 408) throw new Error(`HTTP ${res.status}`);
+      // A missing file is an answer, not a failure (the app asks for optional files): pass it on.
+      if (!res.ok) return { status: res.status, type: res.headers.get('content-type') ?? 'text/plain', body: Buffer.from(await res.arrayBuffer()) };
+      await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(tmp));
+      const size = (await fsp.stat(tmp)).size;
+      const expect = Number(res.headers.get('content-length') ?? 0);
+      if (expect && !res.headers.get('content-encoding') && size !== expect) throw new Error(`cut short (${size} of ${expect} bytes)`);
+      const meta = { url: href, type: res.headers.get('content-type') ?? 'application/octet-stream', size };
+      await fsp.rename(tmp, file);
+      await fsp.writeFile(file + '.json', JSON.stringify(meta));
+      return meta;
+    } catch (e) {
+      last = e;
+      await fsp.rm(tmp, { force: true }).catch(() => {});
+      // Offline: say so now rather than after a minute of retries.
+      if (attempt + 1 >= tries || !net.isOnline()) break;
+      log('retry', attempt + 1, href, String(e && e.message));
+      await sleep(Math.min(20000, 700 * 2 ** attempt));
+    }
+  }
+  throw last ?? new Error('download failed');
+}
+
+function serveCached(req, file, meta) {
+  const base = { ...CORS, 'content-type': meta.type, 'accept-ranges': 'bytes', 'cache-control': 'public, max-age=31536000, immutable' };
+  const head = req.method === 'HEAD';
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : Math.max(0, meta.size - Number(range[2]));
+    let end = range[1] && range[2] ? Number(range[2]) : meta.size - 1;
+    end = Math.min(end, meta.size - 1);
+    if (start > end || start >= meta.size) return new Response(null, { status: 416, headers: { ...base, 'content-range': `bytes */${meta.size}` } });
+    const body = head ? null : Readable.toWeb(fs.createReadStream(file, { start, end }));
+    return new Response(body, { status: 206, headers: { ...base, 'content-range': `bytes ${start}-${end}/${meta.size}`, 'content-length': String(end - start + 1) } });
+  }
+  const body = head || meta.size === 0 ? null : Readable.toWeb(fs.createReadStream(file));
+  return new Response(body, { status: 200, headers: { ...base, 'content-length': String(meta.size) } });
+}
+
+async function passThrough(req) {
+  const res = await net.fetch(req, { bypassCustomProtocolHandlers: true });
+  const headers = new Headers(res.headers);
+  headers.set('cross-origin-resource-policy', 'cross-origin');
+  if (!headers.has('access-control-allow-origin')) headers.set('access-control-allow-origin', '*');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+async function serveHttps(req) {
+  const url = new URL(req.url);
+  if (!CACHED_HOSTS.has(url.hostname)) return passThrough(req);
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: { ...CORS, 'access-control-allow-methods': 'GET, HEAD, OPTIONS', 'access-control-allow-headers': req.headers.get('access-control-request-headers') ?? '*', 'access-control-max-age': '86400' } });
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return passThrough(req);
+  const key = cacheKey(req.url);
+  const file = path.join(cacheDir(), key);
+  let meta = await readMeta(file);
+  if (!meta) {
+    let job = inflight.get(key);
+    if (!job) {
+      job = download(req.url, file).finally(() => inflight.delete(key));
+      inflight.set(key, job);
+    }
+    let got;
+    try {
+      got = await job;
+    } catch (e) {
+      log('failed', req.url, String(e && e.message));
+      return new Response(`Download failed: ${e && e.message}`, { status: 503, headers: CORS });
+    }
+    if (got.body) return new Response(new Uint8Array(got.body), { status: got.status, headers: { ...CORS, 'content-type': got.type } });
+    meta = got;
+  }
+  return serveCached(req, file, meta);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Window
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 960,
+    minHeight: 600,
+    backgroundColor: '#0a0c12',
+    title: 'Beatmaker',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      // Video export records in real time: never slow the page down in the background.
+      backgroundThrottling: false,
+    },
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('app://')) e.preventDefault();
+  });
+  win.webContents.on('console-message', (e) => {
+    const msg = String(e.message);
+    if (e.level === 'error' || e.level === 'warning' || msg.startsWith('[job]')) log('page', e.level, msg.slice(0, 500));
+  });
+  win.webContents.on('render-process-gone', (_e, d) => {
+    log('renderer gone', d.reason);
+    if (busy) {
+      finished.push({ ...busy, ok: false });
+      void fsp.writeFile(path.join(busy.outDir, 'error.txt'), `Beatmaker stopped while remaking ${busy.name} (${d.reason}).\n`).catch(() => {});
+      busy = null;
+    }
+  });
+  win.on('closed', () => {
+    win = null;
+    rendererReady = false;
+  });
+  // F12 for the developer tools, for when something needs looking into.
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
+  });
+  void win.loadURL('app://beatmaker/index.html');
+}
+
+if (!app.requestSingleInstanceLock()) {
+  // Already running: the songs go to that window (second-instance below).
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const more = parseArgs(argv.slice(1));
+    if (more.songs.length) void enqueue(more.songs, more.options);
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    protocol.handle('app', serveApp);
+    protocol.handle('https', serveHttps);
+    log('start', app.getVersion(), process.platform, process.arch, JSON.stringify(cli));
+    createWindow();
+    if (cli.songs.length) void enqueue(cli.songs, cli.options);
+  });
+  app.on('window-all-closed', () => app.quit());
+}

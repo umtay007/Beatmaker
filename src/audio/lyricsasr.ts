@@ -6,9 +6,10 @@
  * a long instrumental, it makes words up. The words come back with their times, are grouped into
  * lines at the pauses, or are matched against lines you typed to time those instead.
  */
+import { cdn, sameOriginCdn } from '../core/cdn';
 import type { TimedText } from '../core/lyrics';
 
-const LIB_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
+const LIB_PATH = '@huggingface/transformers@4.3.0/dist/transformers.min.js';
 const MODEL = 'onnx-community/whisper-base_timestamped';
 const REVISION = '608c49e61301901684bc36cac8f74b95ff6b5a8e';
 /** transformers.js keeps its downloads in this Cache Storage cache. */
@@ -33,6 +34,9 @@ export interface LyricsOptions {
 
 interface Job {
   libUrl: string;
+  /** Where ONNX Runtime's files load from (the CDN, or the desktop app's own origin). */
+  cdn: string;
+  sameOrigin: boolean;
   model: string;
   revision: string;
   language: string | null;
@@ -152,11 +156,14 @@ function workerMain(importModule: (url: string) => Promise<unknown>): void {
       const ortEnv = T.env.backends?.onnx;
       const v = ortEnv?.versions?.web;
       if (v && ortEnv.wasm && !ortEnv.wasm.wasmBinary) {
-        const base = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${v}/dist/ort-wasm-simd-threaded.asyncify`;
+        const base = `${job.cdn}onnxruntime-web@${v}/dist/ort-wasm-simd-threaded.asyncify`;
         const [glue, wasm] = await Promise.all([fetchOk(base + '.mjs').then((r) => r.text()), fetchOk(base + '.wasm').then((r) => r.arrayBuffer())]);
-        ortEnv.wasm.wasmPaths = { mjs: URL.createObjectURL(new Blob([glue], { type: 'text/javascript' })) };
+        // Same-origin (the desktop app), its own URL: ONNX Runtime finds its files beside it and
+        // can start threads. From the CDN, a blob of what was just downloaded (with retries).
+        ortEnv.wasm.wasmPaths = { mjs: job.sameOrigin ? base + '.mjs' : URL.createObjectURL(new Blob([glue], { type: 'text/javascript' })) };
         ortEnv.wasm.wasmBinary = wasm;
-        ortEnv.wasm.numThreads = 1;
+        // Threads need SharedArrayBuffer, which only a cross-origin isolated page has (the desktop app is).
+        ortEnv.wasm.numThreads = crossOriginIsolated && job.sameOrigin ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
       }
       const key = `${job.model}@${job.revision}`;
       if (!pipe || pipeKey !== key) {
@@ -358,7 +365,7 @@ export async function transcribeLyrics(vocals: AudioBuffer, opts: LyricsOptions 
   const regions = voicedRegions(x);
   const wins = windows(regions, x);
   if (!wins.length) return { words: [], lines: [] };
-  const job = { libUrl: LIB_URL, model: MODEL, revision: REVISION, language: opts.language ?? null };
+  const job = { libUrl: cdn(LIB_PATH), cdn: cdn(''), sameOrigin: sameOriginCdn(), model: MODEL, revision: REVISION, language: opts.language ?? null };
   const cut = (a: number, b: number) => ({ at: a, audio: x.slice(Math.floor(a * SR), Math.min(x.length, Math.ceil(b * SR))) });
   const raw = await listen(
     wins.map(([a, b]) => cut(a, b)),

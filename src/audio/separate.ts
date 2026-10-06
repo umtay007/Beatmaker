@@ -34,6 +34,7 @@
  *   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  *   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+import { cdn } from '../core/cdn';
 
 export interface Stems {
   drums: AudioBuffer;
@@ -55,7 +56,7 @@ export interface SeparateOptions {
 
 type Backend = 'webgpu' | 'wasm';
 
-const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/';
+const ORT_PATH = 'onnxruntime-web@1.23.2/dist/';
 // Pinned to a commit, so the bytes behind the cache entry can never change.
 const MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/92e33df61cfc9eb820272aaa62d2ef6dcf4d950d/htdemucs_embedded.onnx';
 const MODEL_BYTES = 180534758;
@@ -593,7 +594,7 @@ export async function separateStems(buf: AudioBuffer, opts: SeparateOptions = {}
   const outs = stems.map((b) => Array.from({ length: channels }, (_, c) => b.getChannelData(c)));
   const job: Job = {
     backend: await separationBackend(),
-    ortBase: ORT_BASE,
+    ortBase: cdn(ORT_PATH),
     modelUrl: MODEL_URL,
     modelBytes: MODEL_BYTES,
     cacheName: CACHE_NAME,

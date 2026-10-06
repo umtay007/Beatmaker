@@ -1,0 +1,32 @@
+{
+  "name": "beatmaker-desktop",
+  "productName": "Beatmaker",
+  "version": "1.0.0",
+  "description": "Make beats, remake songs automatically and turn them into music videos.",
+  "author": "Beatmaker",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "app": "node build-app.mjs",
+    "start": "npm run app && electron .",
+    "dist:win": "npm run app && electron-builder --win portable --x64",
+    "dist:linux": "npm run app && electron-builder --linux dir --x64"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "studio.beatmaker.desktop",
+    "productName": "Beatmaker",
+    "directories": { "output": "release" },
+    "files": ["main.cjs", "preload.cjs", "app/**/*", "package.json"],
+    "asar": true,
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "signAndEditExecutable": false
+    },
+    "portable": { "artifactName": "Beatmaker-${version}-portable.exe" },
+    "linux": { "target": ["dir"], "category": "Audio" }
+  }
+}

@@ -1,4 +1,5 @@
 import { zipFiles } from './zip';
+import { desktop } from './desktop';
 
 type Child = Node | string | number | null | undefined | false;
 type Attrs = Record<string, unknown>;
@@ -95,6 +96,9 @@ const HOST_EXTENSIONS = new Set(['gif', 'png', 'jpg', 'jpeg', 'webp', 'mp4', 'we
  * through it, zipping file types the host does not accept. Resolves false if the viewer declines.
  */
 export async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
+  // The desktop app saves with a native dialog.
+  const app = desktop();
+  if (app) return app.saveAs(name, new Uint8Array(await blob.arrayBuffer()));
   const host = (window as unknown as { claude?: HostRuntime }).claude;
   if (host && typeof host.use === 'function') {
     let dl: HostDownloads | null = null;

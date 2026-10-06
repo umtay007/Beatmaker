@@ -1,5 +1,7 @@
 import './styles.css';
 import { AudioEngine } from './audio/engine';
+import { transcribeLyrics } from './audio/lyricsasr';
+import { separateStems } from './audio/separate';
 import { restoreUserKits } from './audio/packs';
 import { onSampleStatus } from './audio/samples';
 import { demoSong } from './beats/templates';
@@ -15,6 +17,8 @@ import { installKeyboard } from './ui/keyboard';
 import { droppedFiles, isAudioFile } from './ui/packs';
 import { TopBar } from './ui/topbar';
 import { TracksPanel } from './ui/tracks';
+import { desktop } from './ui/desktop';
+import { showRemake } from './ui/remakeui';
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -237,5 +241,30 @@ function frame(): void {
 }
 requestAnimationFrame(frame);
 
+// ---------------------------------------------------------------------------------------------
+// Desktop app: songs dropped on the program (or picked in it) are remade and exported with no clicks.
+
+const app_ = desktop();
+if (app_) {
+  let current: { close(): void } | null = null;
+  app_.onJob((job) => {
+    void (async () => {
+      try {
+        const data = await app_.readFile(job.path);
+        current?.close();
+        current = showRemake(store, engine, actions, () => window.dispatchEvent(new Event('beatmaker:ab-open')), {
+          file: new File([data as BlobPart], job.name),
+          outDir: job.outDir,
+          options: job.options,
+          onDone: (r) => app_.jobDone(job.id, r),
+        });
+      } catch (e) {
+        app_.jobDone(job.id, { ok: false, files: [], error: (e as Error).message });
+      }
+    })();
+  });
+  app_.ready();
+}
+
 // Expose for debugging / automated tests.
-(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor };
+(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor, separateStems, transcribeLyrics };

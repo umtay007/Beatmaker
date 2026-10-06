@@ -156,6 +156,32 @@ result as an MP4 or WebM video.
   projects as `.json`. A project that uses your own sounds (drum packs, sampler sounds) saves as a
   `.zip` with those sounds inside, so it opens with them in any browser.
 
+## Desktop app (Windows)
+
+`Beatmaker-<version>-portable.exe` is the same app as a program of its own: no install, no browser.
+Windows may warn the first time because the program isn't code-signed: click **More info → Run
+anyway**.
+
+- **Drag songs onto Beatmaker.exe** (or use **File → Remake songs and export everything…**). Each
+  is remade with nothing to click, and a folder named `<song> - Beatmaker` appears next to it with
+  the music video (`.mp4`), an `.mp3` of the remake, MIDI (`-midi.zip`: a file per track and the
+  whole song), the lyrics (`.lrc`, timed to the remake), the project (`.beatmaker.zip`, to open
+  and change anything) and a report of what it found. The folder opens when it's done.
+- It uses the most thorough settings: it separates the parts, tries every instrument for each
+  part, and settles close calls by comparing over several parts of the song.
+- Every download (instrument recordings, the separation, note and speech models, libraries) goes
+  through a cache on disk with retries, so a dropped connection can't swap a recording for a synth
+  stand-in, and the same song gives the same result every time. After the first song it works
+  offline. The first song downloads about 300 MB; later ones start straight away.
+- It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation.
+- From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>] [--quick]
+  [--no-lyrics] [--no-video] [--stems] [--quit]` (`--quick` tries a shortlist of instruments,
+  `--stems` also saves the separated parts as WAVs, `--quit` closes it when done).
+- The log is `%APPDATA%\Beatmaker\beatmaker.log`, and the download cache is next to it.
+
+Build it with `cd desktop && npm install && npm run dist:win` (`dist:linux` for Linux). The
+desktop shell is `desktop/main.cjs`; the page is the web app built into `desktop/app`.
+
 ## Getting started
 
 ```bash

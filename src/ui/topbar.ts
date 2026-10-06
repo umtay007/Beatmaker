@@ -1,4 +1,5 @@
 import { showLyrics } from './lyricsui';
+import { desktop } from './desktop';
 import { showRemake } from './remakeui';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
@@ -153,7 +154,8 @@ export class TopBar {
       '-',
       { label: 'Import MIDI…', icon: 'upload', action: () => a.pickAndOpen('.mid,.midi,audio/midi') },
       { label: 'Load reference audio…', icon: 'wave', action: () => a.pickAndOpen('') },
-      { label: 'Remake a song automatically…', icon: 'sparkle', action: () => showRemake(this.store, this.engine, a, () => this.ab.open()) },
+      { label: 'Remake a song automatically…', icon: 'sparkle', action: () => void showRemake(this.store, this.engine, a, () => this.ab.open()) },
+      ...(desktop() ? [{ label: 'Remake songs and export everything…', icon: 'sparkle', hint: 'no clicks after', action: () => void desktop()!.chooseSongs() }] : []),
       { label: 'Load drum pack…', icon: 'drum', hint: 'any sample pack', action: () => a.loadDrumPack() },
       { label: 'Lyrics…', icon: 'mic', hint: 'shown in the video', action: () => showLyrics(this.store, this.engine) },
       '-',

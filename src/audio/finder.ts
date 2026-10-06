@@ -368,20 +368,34 @@ export async function findInstrument(o: FinderOptions): Promise<FinderResult[]> 
 
 /** The stretch to compare when none is chosen: the 8 bars (or fewer) where the track has the most notes. */
 export function busiestStretch(song: Song, track: Track, bars = 8): { from: number; to: number } {
+  return busyStretches(song, track, bars, 1)[0];
+}
+
+/** The `count` busiest stretches of `bars` bars for a track, not overlapping, busiest first. */
+export function busyStretches(song: Song, track: Track, bars = 8, count = 3): { from: number; to: number }[] {
   const tl = new Timeline(song);
   const BARTICKS = 384;
   const counts = new Array(song.bars).fill(0);
   for (const n of track.notes) counts[Math.floor(n.start / BARTICKS)] = (counts[Math.floor(n.start / BARTICKS)] ?? 0) + 1;
   const len = Math.min(bars, song.bars);
-  let best = 0;
-  let bestN = -1;
-  for (let b = 0; b + len <= song.bars; b++) {
-    let s = 0;
-    for (let k = b; k < b + len; k++) s += counts[k] ?? 0;
-    if (s > bestN) {
-      bestN = s;
-      best = b;
+  const taken: number[] = [];
+  const out: { from: number; to: number }[] = [];
+  while (out.length < count) {
+    let best = -1;
+    let bestN = -1;
+    for (let b = 0; b + len <= song.bars; b++) {
+      if (taken.some((t) => b < t + len && t < b + len)) continue;
+      let s = 0;
+      for (let k = b; k < b + len; k++) s += counts[k] ?? 0;
+      if (s > bestN) {
+        bestN = s;
+        best = b;
+      }
     }
+    // Nothing left, or nothing playing there (after the first).
+    if (best < 0 || (out.length && bestN <= 0)) break;
+    taken.push(best);
+    out.push({ from: tl.tickToSec(best * BARTICKS), to: tl.tickToSec((best + len) * BARTICKS) });
   }
-  return { from: tl.tickToSec(best * BARTICKS), to: tl.tickToSec((best + len) * BARTICKS) };
+  return out;
 }

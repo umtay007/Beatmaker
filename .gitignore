@@ -8,3 +8,8 @@ dist-single/
 *.wav
 *.mid
 shots/
+
+# desktop app
+desktop/node_modules/
+desktop/app/
+desktop/release/

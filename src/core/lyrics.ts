@@ -108,9 +108,13 @@ const stamp = (sec: number) => {
   return `[${String(Math.floor(cs / 6000)).padStart(2, '0')}:${String(Math.floor(cs / 100) % 60).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}]`;
 };
 
-/** Song lines → LRC (an end that isn't the next line's start is written as an empty line). */
-export function toLrc(song: Song, lines: LyricLine[] = song.lyrics ?? []): string {
-  const clock = lyricClock(song);
+/**
+ * Song lines → LRC (an end that isn't the next line's start is written as an empty line). Timed to
+ * the original recording, or with `forSong` to the song itself (its exported audio starts at bar 1).
+ */
+export function toLrc(song: Song, lines: LyricLine[] = song.lyrics ?? [], forSong = false): string {
+  const orig = lyricClock(song);
+  const clock = forSong ? { toSec: (tick: number) => orig.toSec(tick) + song.audioOffset } : orig;
   const out: string[] = [];
   lines.forEach((l, i) => {
     out.push(stamp(clock.toSec(l.tick)) + l.text);

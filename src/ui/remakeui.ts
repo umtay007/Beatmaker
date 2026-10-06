@@ -2,16 +2,37 @@ import { separateStems, separationModelCached } from '../audio/separate';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
 import type { Actions } from './actions';
+import { exportEverything } from './autoall';
 import { autoRemake, type Separator } from './autoremake';
+import { desktop } from './desktop';
 import { h, icon, modal, toast } from './dom';
 
 /** HTDemucs in the browser (its model downloads once, on first use). */
 const separator: Separator = (buf, onProgress, signal) => separateStems(buf, { onProgress, signal });
 const separatorCached = separationModelCached;
 
+/** A remake started for you (the desktop app's jobs): the song, where its files go, and what to make. */
+export interface AutoRun {
+  file: File;
+  outDir: string | null;
+  options: { thorough: boolean; lyrics: boolean; video: boolean; stems: boolean };
+  onDone(result: { ok: boolean; files: string[]; error?: string }): void;
+}
+
 /** "Remake a song automatically": choose the original, a few options, and watch it go. */
-export function showRemake(store: Store, engine: AudioEngine, actions: Actions, onCompare: () => void): void {
-  const opts = { separate: true, thorough: false, keepVocals: false, tidy: true, lyrics: true };
+export function showRemake(store: Store, engine: AudioEngine, actions: Actions, onCompare: () => void, auto?: AutoRun): { close(): void } {
+  const app = desktop();
+  // The desktop app has the time and the cores: the most thorough settings by default.
+  const opts = {
+    separate: true,
+    thorough: auto?.options.thorough ?? !!app,
+    keepVocals: true,
+    tidy: true,
+    lyrics: auto?.options.lyrics ?? true,
+    exportAll: !!auto || !!app,
+    video: auto?.options.video ?? true,
+    stems: auto?.options.stems ?? false,
+  };
   const fileLine = h('p', { class: 'remake-file' });
   const pick = h('input', { type: 'file', accept: 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac', hidden: true }) as HTMLInputElement;
   const showFile = () => {
@@ -58,6 +79,12 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     check('Keep the original vocals', 'Puts the separated vocals on a track of their own (needs “Separate the parts”).', () => opts.keepVocals, (v) => (opts.keepVocals = v)),
     check('Write out the lyrics', 'Speech recognition (Whisper, in this browser) writes the words from the separated vocals, timed, for the video. Its model downloads once (about 100 MB). Check the words after: singing fools it.', () => opts.lyrics, (v) => (opts.lyrics = v)),
     check('Tidy repeats', 'Loops say the same thing each time: fixes notes the transcription got wrong on some passes.', () => opts.tidy, (v) => (opts.tidy = v)),
+    check(
+      'Then export everything',
+      app ? 'The video, an MP3, MIDI (a file per track), the lyrics, the project and a report, into a folder next to the song.' : 'The video, an MP3, MIDI (a file per track), the lyrics, the project and a report, as downloads.',
+      () => opts.exportAll,
+      (v) => (opts.exportAll = v),
+    ),
     progress,
     status,
     start,
@@ -67,6 +94,20 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
   let ctrl: AbortController | null = null;
   const m = modal('Remake a song automatically', body, { wide: true, onClose: () => ctrl?.abort() });
   showFile();
+  if (auto) {
+    // A job from the desktop app: load the song and go, no clicks.
+    fileLine.textContent = `Loading ${auto.file.name}…`;
+    void engine
+      .loadBacking(auto.file)
+      .then(() => {
+        showFile();
+        start.click();
+      })
+      .catch((e: Error) => {
+        status.textContent = `Couldn't read ${auto.file.name}: ${e.message}`;
+        auto.onDone({ ok: false, files: [], error: e.message });
+      });
+  }
   start.addEventListener('click', async () => {
     if (ctrl) {
       ctrl.abort();
@@ -80,22 +121,49 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     const t0 = performance.now();
     try {
       await engine.unlock();
+      // A job from the desktop app leaves a trail of its steps in the app's log.
+      let said = '';
+      const trail = (label: string) => {
+        // One line per step: not per percent, file or instrument tried.
+        const step = label.split(':')[0].replace(/[\d.]+( of [\d.]+)?( s| MB|%)?/g, '#').trim();
+        if (auto && step !== said) console.info(`[job] ${label}`);
+        said = step;
+      };
       const lines = await autoRemake({ store, engine, actions, separator }, opts, (label, f) => {
         status.textContent = label;
         bar.style.width = `${Math.round(f * 100)}%`;
+        trail(label);
       }, ctrl.signal);
-      status.textContent = `Done in ${Math.round((performance.now() - t0) / 1000)} s. Press B while it plays to flip between the original and the remake.`;
       summary.replaceChildren(...lines.map((l) => h('li', null, l)));
       summary.hidden = false;
+      let files: string[] = [];
+      if (opts.exportAll) {
+        const outDir = auto ? auto.outDir : app && engine.backingFile ? await app.outDirFor(engine.backingFile) : null;
+        files = await exportEverything({ store, engine, actions }, outDir, { video: opts.video, stems: opts.stems }, lines, (label, f) => {
+          status.textContent = label;
+          bar.style.width = `${Math.round(f * 100)}%`;
+          trail(label);
+        }, ctrl.signal);
+        if (app && outDir) {
+          const dir = outDir;
+          body.insertBefore(h('button', { class: 'btn btn-primary btn-block', onclick: () => void app.openFolder(dir) }, icon('file', 15), 'Open the folder'), compare);
+        }
+      }
+      const secs = Math.round((performance.now() - t0) / 1000);
+      status.textContent = `Done in ${secs >= 120 ? `${Math.round(secs / 60)} min` : `${secs} s`}${files.length ? `: ${files.length} files written` : ''}. Press B while it plays to flip between the original and the remake.`;
       compare.hidden = false;
       start.hidden = true;
+      auto?.onDone({ ok: true, files });
     } catch (e) {
-      status.textContent = (e as Error).name === 'AbortError' ? 'Stopped. What was done so far is kept (Ctrl+Z steps back).' : `Couldn't finish: ${(e as Error).message}`;
+      const stopped = (e as Error).name === 'AbortError';
+      status.textContent = stopped ? 'Stopped. What was done so far is kept (Ctrl+Z steps back).' : `Couldn't finish: ${(e as Error).message}`;
       start.replaceChildren(icon('sparkle', 15), 'Try again');
+      auto?.onDone({ ok: false, files: [], error: stopped ? 'stopped' : (e as Error).message });
     } finally {
       ctrl = null;
       progress.hidden = true;
       body.querySelectorAll('input').forEach((i) => (i.disabled = false));
     }
   });
+  return { close: m.close };
 }

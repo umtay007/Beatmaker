@@ -9,7 +9,7 @@
  * 6. Fit each track's EQ and level to its stem, then match the master to the original.
  */
 import { detectAudioKey } from '../audio/key';
-import { busiestStretch, finderCandidates, findInstrument } from '../audio/finder';
+import { busiestStretch, busyStretches, finderCandidates, findInstrument } from '../audio/finder';
 import { transcribePitches, drumGrid } from '../audio/transcribe';
 import { drumNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
@@ -114,13 +114,17 @@ export async function autoRemake(
   let stems: Record<StemName, AudioBuffer> | null = null;
   if (weights.separate) {
     const sep = phase('separate', 'Separating drums, bass, melody and vocals…');
-    try {
-      stems = await c.separator!(buf, (f, msg) => sep(f, msg), signal);
-      engine.stems = stems;
-      report.push('Separated the original into drums, bass, melody and vocals');
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') throw e;
-      report.push(`Couldn't separate the parts (${(e as Error).message}); worked from the full mix`);
+    // Twice before giving up: everything after is much better with the parts apart.
+    for (let attempt = 1; attempt <= 2 && !stems; attempt++) {
+      try {
+        stems = await c.separator!(buf, (f, msg) => sep(f, msg), signal);
+        engine.stems = stems;
+        report.push('Separated the original into drums, bass, melody and vocals');
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e;
+        console.warn('Separation failed', e);
+        if (attempt === 2) report.push(`Warning: couldn't separate the parts (${(e as Error).message}), so it worked from the full mix: expect rougher notes and sounds`);
+      }
     }
   }
   aborted(signal);
@@ -260,20 +264,31 @@ export async function autoRemake(
     const cands =
       role === 'drums' ? all.map((x) => x.id)
       : role === 'bass' ? bassCandidates(t, all.filter((x) => x.group === 'Bass').map((x) => x.id))
-      : opts.thorough ? all.map((x) => x.id)
+      : opts.thorough ? all.filter((x) => x.group !== 'Bass').map((x) => x.id)
       : SHORTLIST[role];
     try {
-      const res = await findInstrument({
-        song: store.song,
-        trackId: t.id,
-        from: span.from,
-        to: span.to,
-        reference: stem ?? buf,
-        offset: off,
-        candidates: cands,
-        signal,
-        onProgress: (d, n, label) => find((i + d / Math.max(1, n)) / pitched.length, `Finding the ${t.name.toLowerCase()} sound: ${label || 'done'}`),
-      });
+      const label = (what: string) => (d: number, n: number, l: string) => find((i + d / Math.max(1, n)) / pitched.length, `${what} the ${t.name.toLowerCase()} sound: ${l || 'done'}`);
+      const ask = (sp: { from: number; to: number }, candidates: string[], what: string) =>
+        findInstrument({ song: store.song, trackId: t.id, from: sp.from, to: sp.to, reference: stem ?? buf, offset: off, candidates, signal, onProgress: label(what) });
+      let res = await ask(span, cands, 'Finding');
+      // Close calls are settled over more of the song: the busiest stretch alone can mislead.
+      let checked = 1;
+      const near = res.filter((r) => r.score <= res[0].score * 1.12).slice(0, 3);
+      if (near.length > 1) {
+        const total = new Map(near.map((r) => [r.id, r.score]));
+        for (const sp of busyStretches(store.song, t, 8, 3).slice(1)) {
+          const again = await ask(sp, near.map((r) => r.id), 'Double-checking');
+          for (const r of near) {
+            const hit = again.find((x) => x.id === r.id);
+            total.set(r.id, hit ? total.get(r.id)! + hit.score : Infinity);
+          }
+          checked++;
+        }
+        if (checked > 1) {
+          const ranked = [...near].sort((a, b) => total.get(a.id)! - total.get(b.id)!).map((r) => ({ ...r, score: total.get(r.id)! / checked }));
+          res = [...ranked, ...res.filter((r) => !near.includes(r))];
+        }
+      }
       const best = res[0];
       if (best) {
         const gain = Math.pow(10, Math.max(-18, Math.min(18, best.levelDb)) / 20);
@@ -283,7 +298,8 @@ export async function autoRemake(
         });
         // A near tie: the numbers can't tell them apart, so say so (Find on the track lets you listen).
         const close = res[1] && res[1].score - best.score < 0.06 * best.score;
-        report.push(`${t.name}: ${best.label}${res[1] ? (close ? ` (a close call with ${res[1].label}: try both with Find on the track)` : ` (next closest: ${res[1].label})`) : ''}`);
+        const over = checked > 1 ? `, compared over ${checked} parts of the song` : '';
+        report.push(`${t.name}: ${best.label}${res[1] ? (close ? ` (a close call with ${res[1].label}${over}: try both with Find on the track)` : ` (next closest: ${res[1].label}${over})`) : ''}`);
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;

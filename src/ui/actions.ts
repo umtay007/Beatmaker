@@ -271,6 +271,12 @@ export class Actions {
    * sampler sounds), as a .zip bundle with those sounds inside so it opens anywhere.
    */
   async saveProject(): Promise<void> {
+    const { blob, name, sounds } = await this.projectFile();
+    if ((await downloadBlob(blob, name)) && sounds) toast(`Saved with its ${sounds} sound${sounds === 1 ? '' : 's'} (.zip)`, 'ok', 3500);
+  }
+
+  /** The project as a file: plain JSON, or a .zip with the sounds it uses (drum packs, sampler sounds, soundfonts). */
+  async projectFile(): Promise<{ blob: Blob; name: string; sounds: number }> {
     const song = this.store.song;
     const json = JSON.stringify({ format: 'beatmaker', version: 1, song, visual: this.store.visual });
     const base = safeName(song.name);
@@ -281,16 +287,13 @@ export class Actions {
       ...song.tracks.filter((t) => t.instrument === 'soundfont' && t.soundfont).flatMap((t) => [t.soundfont!.file, ...Object.values(t.soundfont!.samples ?? {})]),
     ]);
     const sounds = (await Promise.all([...ids].map(getStoredFile))).filter((f) => f !== undefined);
-    if (!sounds.length) {
-      void downloadBlob(new Blob([json], { type: 'application/json' }), `${base}.beatmaker.json`);
-      return;
-    }
+    if (!sounds.length) return { blob: new Blob([json], { type: 'application/json' }), name: `${base}.beatmaker.json`, sounds: 0 };
     const zip = await zipFiles([
       { name: 'project.beatmaker.json', data: new Blob([json]) },
       { name: 'sounds.json', data: new Blob([JSON.stringify({ kits, sounds: sounds.map((f) => ({ id: f.id, name: f.name })) })]) },
       ...sounds.map((f) => ({ name: `sounds/${f.id}`, data: new Blob([f.data]) })),
     ]);
-    if (await downloadBlob(zip, `${base}.beatmaker.zip`)) toast(`Saved with its ${sounds.length} sound${sounds.length === 1 ? '' : 's'} (.zip)`, 'ok', 3500);
+    return { blob: zip, name: `${base}.beatmaker.zip`, sounds: sounds.length };
   }
 
   /** Open a .zip bundle from saveProject: put its sounds and packs in this browser, then the song. */
@@ -335,17 +338,24 @@ export class Actions {
 
   /** A .mid file for every track with notes (each keeps the song's tempo, key and markers), plus the whole song, in a ZIP. */
   async exportMidiTracks(): Promise<void> {
-    const song = this.store.song;
-    const tracks = song.tracks.filter((t) => t.notes.length);
-    if (!tracks.length) {
+    const res = await this.midiZip();
+    if (!res) {
       toast('No tracks with notes to export', 'error');
       return;
     }
+    if (await downloadBlob(res.blob, res.name)) toast(`Exported ${res.tracks} MIDI tracks + the full song`, 'ok', 4000);
+  }
+
+  /** Every track with notes as its own .mid, plus the whole song, in a ZIP (null when no track has notes). */
+  async midiZip(): Promise<{ blob: Blob; name: string; tracks: number } | null> {
+    const song = this.store.song;
+    // A track playing a recording (vocals) has one long note: nothing to write as MIDI.
+    const tracks = song.tracks.filter((t) => t.notes.length && !(t.instrument === 'sampler' && t.notes.length === 1));
+    if (!tracks.length) return null;
     const midi = (bytes: Uint8Array) => new Blob([bytes as BlobPart], { type: 'audio/midi' });
-    const files = [{ name: '00 Full song.mid', data: midi(songToMidi(song)) }];
+    const files = [{ name: '00 Full song.mid', data: midi(songToMidi({ ...song, tracks })) }];
     tracks.forEach((t, i) => files.push({ name: `${String(i + 1).padStart(2, '0')} ${fileName(t.name)}.mid`, data: midi(songToMidi({ ...song, tracks: [t] })) }));
-    const zip = await zipFiles(files);
-    if (await downloadBlob(zip, `${safeName(song.name)}-midi.zip`)) toast(`Exported ${tracks.length} MIDI tracks + the full song`, 'ok', 4000);
+    return { blob: await zipFiles(files), name: `${safeName(song.name)}-midi.zip`, tracks: tracks.length };
   }
 
   /** Render the song (or the loop) and download it as a 256 kbps MP3. */
