@@ -101,7 +101,9 @@ export function exportVideo(
     const canvas = player.post.canvas;
     // Frames are drawn and captured by a timer, not left to the page's paint cycle: a minimized or
     // covered window gets no paints, and the video would come out at a frame or two a second.
-    const vstream = canvas.captureStream(0);
+    // (Where a track can't be asked for a frame, the browser captures at the frame rate as before.)
+    const manual = typeof CanvasCaptureMediaStreamTrack !== 'undefined' && 'requestFrame' in CanvasCaptureMediaStreamTrack.prototype;
+    const vstream = canvas.captureStream(manual ? 0 : v.exportFps);
     const vtrack = vstream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
     const stream = new MediaStream([vtrack, ...engine.streamDest.stream.getAudioTracks()]);
     const pixels = canvas.width * canvas.height;
@@ -124,7 +126,7 @@ export function exportVideo(
     const drawFrame = () => {
       try {
         player.render();
-        vtrack.requestFrame();
+        if (manual) vtrack.requestFrame();
       } catch (e) {
         console.error(e);
       }

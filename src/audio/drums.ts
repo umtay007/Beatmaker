@@ -405,7 +405,7 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       n.stop(t + p.decay + 0.1);
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.value = p.bp;
+      bp.frequency.value = Math.min(p.bp, ctx.sampleRate / 2);
       bp.Q.value = 0.8;
       const hp = ctx.createBiquadFilter();
       hp.type = 'highpass';
@@ -479,7 +479,7 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       const n = noise(ctx);
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.value = p.bp;
+      bp.frequency.value = Math.min(p.bp, ctx.sampleRate / 2);
       bp.Q.value = 1.2;
       const hp = ctx.createBiquadFilter();
       hp.type = 'highpass';

@@ -24,7 +24,7 @@
     "asar": true,
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true
     },
     "portable": { "artifactName": "Beatmaker-${version}-portable.exe" },
     "linux": { "target": ["dir"], "category": "Audio" }
