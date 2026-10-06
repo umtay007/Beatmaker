@@ -63,12 +63,12 @@ function log(...parts) {
 
 function parseArgs(argv) {
   const songs = [];
-  const options = { thorough: true, lyrics: true, video: true, stems: false };
+  const options = { thorough: false, lyrics: true, video: true, stems: false };
   let out = null;
   let quit = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--quick') options.thorough = false;
+    if (a === '--all-instruments') options.thorough = true;
     else if (a === '--no-lyrics') options.lyrics = false;
     else if (a === '--no-video') options.video = false;
     else if (a === '--stems') options.stems = true;

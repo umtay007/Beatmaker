@@ -23,10 +23,11 @@ export interface AutoRun {
 /** "Remake a song automatically": choose the original, a few options, and watch it go. */
 export function showRemake(store: Store, engine: AudioEngine, actions: Actions, onCompare: () => void, auto?: AutoRun): { close(): void } {
   const app = desktop();
-  // The desktop app has the time and the cores: the most thorough settings by default.
+  // Every instrument is not more thorough in practice: synth pads then beat the recorded strings
+  // they sound like. The shortlist (mostly recorded instruments) is the default everywhere.
   const opts = {
     separate: true,
-    thorough: auto?.options.thorough ?? !!app,
+    thorough: auto?.options.thorough ?? false,
     keepVocals: true,
     tidy: true,
     lyrics: auto?.options.lyrics ?? true,

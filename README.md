@@ -167,8 +167,9 @@ anyway**.
   the music video (`.mp4`), an `.mp3` of the remake, MIDI (`-midi.zip`: a file per track and the
   whole song), the lyrics (`.lrc`, timed to the remake), the project (`.beatmaker.zip`, to open
   and change anything) and a report of what it found. The folder opens when it's done.
-- It uses the most thorough settings: it separates the parts, tries every instrument for each
-  part, and settles close calls by comparing over several parts of the song.
+- It separates the parts, tries a shortlist of mostly recorded instruments for each part (trying
+  every one lets synth pads beat the strings they sound like), and settles close calls by
+  comparing over three parts of the song.
 - Every download (instrument recordings, the separation, note and speech models, libraries) goes
   through a cache on disk with retries, so a dropped connection can't swap a recording for a synth
   stand-in, and the same song gives the same result every time. After the first song it works
@@ -176,9 +177,9 @@ anyway**.
   straight away.
 - It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation, and
   a larger speech model for the lyrics (Whisper small rather than base).
-- From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>] [--quick]
-  [--no-lyrics] [--no-video] [--stems] [--quit]` (`--quick` tries a shortlist of instruments,
-  `--stems` also saves the separated parts as WAVs, `--quit` closes it when done).
+- From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>]
+  [--all-instruments] [--no-lyrics] [--no-video] [--stems] [--quit]` (`--stems` also saves the
+  separated parts as WAVs, `--quit` closes it when done).
 - The log is `%APPDATA%\Beatmaker\beatmaker.log`, and the download cache is next to it.
 
 Build it with `cd desktop && npm install && npm run dist:win` (`dist:linux` for Linux). The
