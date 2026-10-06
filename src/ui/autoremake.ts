@@ -314,7 +314,7 @@ export async function autoRemake(
       aborted(signal);
       const role = roleOf.get(t.id)!;
       if (role === 'melody') continue; // it shares its stem with the chords, which dominate it
-      tone(i / pitched.length, `Fitting the ${t.name.toLowerCase()}’s tone…`);
+      tone(i / pitched.length, `Fitting the tone of the ${t.name.toLowerCase()}…`);
       const stem = role === 'drums' ? stems.drums : role === 'bass' ? stems.bass : stems.other;
       const span = busiestStretch(store.song, t, 16);
       const solo = cloneSong(store.song);
