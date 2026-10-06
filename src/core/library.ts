@@ -15,6 +15,8 @@ export interface UserKit {
   name: string;
   /** GM drum pitch → stored file id. */
   files: Record<number, string>;
+  /** Level per voice after peak normalization (1 = full), for a kit put together from several packs. */
+  levels?: Record<number, number>;
   created: number;
 }
 
@@ -117,8 +119,8 @@ export function listKits(): Promise<UserKit[]> {
   return all<UserKit>('kits').then((k) => k.sort((a, b) => a.created - b.created));
 }
 
-export async function saveKit(name: string, files: Record<number, string>): Promise<UserKit> {
-  const kit: UserKit = { id: rid('u'), name, files, created: Date.now() };
+export async function saveKit(name: string, files: Record<number, string>, levels?: Record<number, number>): Promise<UserKit> {
+  const kit: UserKit = { id: rid('u'), name, files, ...(levels ? { levels } : {}), created: Date.now() };
   await put('kits', kit);
   return kit;
 }

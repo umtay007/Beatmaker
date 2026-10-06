@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
     const p = webUtils.getPathForFile(file);
     return p ? ipcRenderer.invoke('out-dir-for', p) : Promise.resolve(null);
   },
+  kitFiles: () => ipcRenderer.invoke('kit-files'),
   vstSounds: () => ipcRenderer.invoke('vst-sounds'),
   vstRender: (job) => ipcRenderer.invoke('vst-render', job),
   chooseSongs: () => ipcRenderer.invoke('choose-songs'),

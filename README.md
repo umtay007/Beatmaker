@@ -185,19 +185,24 @@ anyway**.
 - It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation, and
   a larger speech model for the lyrics (Whisper small rather than base).
 - From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>]
-  [--all-instruments] [--lyrics] [--vocals] [--no-video] [--no-tidy] [--stems] [--quick] [--quit]`
+  [--all-instruments] [--lyrics] [--vocals] [--kits <folder>] [--no-video] [--no-tidy] [--stems]
+  [--quick] [--quit]`
   (`--stems` also saves the separated parts as WAVs, `--quick` stops after the analysis and the
   comparison, with nothing exported, `--quit` closes it when done).
 - The video is recorded at a steady 30 frames a second even with the window minimized or covered.
-- **Your own VST instruments.** Pick a sound once per part in the plugin's own window:
-  `Beatmaker.exe --pick-sound melody --plugin "C:pathAnalog Lab V.vst3"` (and `drums`), choose a
-  sound and close the window. From then on the melody and drums of every remake are played through
-  those sounds (offline, with the notes found in the song) and replace the built-in ones, and the
-  report says how closely each matches the original compared with the built-in sound; a sound that
-  matches clearly worse is left out. It needs Python with `pedalboard` (the app installs it with
-  pip if it's missing; set `BEATMAKER_PYTHON` to use a particular Python). The picks are kept in
-  `%APPDATA%Beatmakerst`.
-- The log is `%APPDATA%\Beatmaker\beatmaker.log`, and the download cache is next to it.
+- **Your own VST instruments.** Pick a sound once for the melody:
+  `Beatmaker.exe --pick-sound melody --plugin "C:\path\Analog Lab V.vst3"`. The plugin's own window
+  opens: choose a sound and close it, and the sound is played at every pitch and saved as samples in
+  `%APPDATA%\Beatmaker\vst` (plugins don't remember a sound chosen in their window, so it is captured
+  as audio right away). From then on every remake plays its melody with those samples and says how
+  closely the part matches the original compared with the built-in sound; a sound that matches
+  clearly worse is left out. Needs Python with `pedalboard` for picking (the app installs it with pip
+  if it's missing; set `BEATMAKER_PYTHON` to use a particular Python).
+- **Your own drum samples.** `Beatmaker.exe --kits "D:\Drum kits"` (remembered after the first time)
+  makes each remake try every kick, snare, hat and clap in that folder (unpack the zips first;
+  files over about a megabyte are taken for loops) on the song's own hits, compare each with the
+  original's drum part and put the best of each into one kit, saved with the project. The kit is
+  used only if the drums then match the original better than the best built-in kit.
 
 Build it with `cd desktop && npm install && npm run dist:win` (`dist:linux` for Linux). The
 desktop shell is `desktop/main.cjs`; the page is the web app built into `desktop/app`.

@@ -4,7 +4,7 @@ import { KIT_BY_ID, KITS, registerKit, type KitDef } from './drums';
 /** A stored drum pack as a kit: its recordings, with the Trap kit's synthesized voices for the rest. */
 export function userKitDef(k: UserKit): KitDef {
   const fb = KIT_BY_ID.get('trap') ?? KITS[0];
-  return { id: k.id, label: k.name, group: 'Your packs', voices: fb.voices, fallback: fb.id, samples: { fetch: getFile, files: k.files } };
+  return { id: k.id, label: k.name, group: 'Your packs', voices: fb.voices, fallback: fb.id, samples: { fetch: getFile, files: k.files, levels: k.levels } };
 }
 
 /** Register every pack saved in this browser (call once at startup, before loading kits). */

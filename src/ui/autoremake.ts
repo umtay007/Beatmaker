@@ -18,6 +18,7 @@ import { detectSections } from '../audio/structure';
 import { renderSong } from '../audio/render';
 import { compareRemake, describeComparison, partScore } from '../audio/compare';
 import { applyVstSounds } from './vstparts';
+import { buildKitFromLibrary } from './mykit';
 import { fitTone, ltas } from '../audio/tonefit';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
@@ -311,6 +312,18 @@ export async function autoRemake(
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
       report.push(`${t.name}: kept ${instrumentFor(t.instrument).label} (${(e as Error).message})`);
+    }
+  }
+
+  // The drums from your own sample library, where one is set (the desktop app, --kits <folder>).
+  const drumTrack = store.song.tracks.find((t) => roleOf.get(t.id) === 'drums');
+  if (stems && drumTrack) {
+    try {
+      report.push(...(await buildKitFromLibrary({ store, drums: drumTrack, stem: stems.drums, offset: off, signal, progress: (label, f) => find(0.9 + 0.1 * f, label) })));
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('Own drum sounds failed', e);
+      report.push(`Drums from your own sounds: not used (${(e as Error).message})`);
     }
   }
 

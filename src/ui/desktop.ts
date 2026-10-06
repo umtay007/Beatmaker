@@ -30,6 +30,8 @@ export interface DesktopApi {
   vstSounds(): Promise<Record<string, { name: string; plugin: string }>>;
   /** Play notes through the picked sounds: a WAV per role (44.1 kHz stereo from song time 0), or an error. */
   vstRender(job: { duration: number; parts: { role: string; notes: { p: number; s: number; e: number; v: number }[] }[] }): Promise<{ files?: Record<string, Uint8Array>; error?: string }>;
+  /** The drum one-shots in the sample folder set with --kits (path to read, and path inside the folder). */
+  kitFiles(): Promise<{ path: string; rel: string }[]>;
   ready(): void;
   /** How far the current song is (0..1), for the taskbar. */
   progress(fraction: number, label: string): void;

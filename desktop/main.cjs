@@ -70,6 +70,8 @@ function parseArgs(argv) {
   let quit = false;
   let pick = null;
   let plugin = null;
+  let noWindow = false;
+  let kits = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
@@ -82,11 +84,13 @@ function parseArgs(argv) {
     else if (a === '--quit') quit = true;
     else if (a === '--pick-sound') pick = argv[++i] ?? null;
     else if (a === '--plugin') plugin = argv[++i] ?? null;
+    else if (a === '--no-window') noWindow = true;
+    else if (a === '--kits') kits = argv[++i] ?? null;
     else if (a === '--out') out = argv[++i] ?? null;
     else if (a.startsWith('--out=')) out = a.slice(6);
     else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
   }
-  return { songs, options, out, quit, pick: pick && { role: pick, plugin } };
+  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits };
 }
 
 // The first entries are the program (and the app folder when run as `electron .`).
@@ -194,6 +198,43 @@ ipcMain.handle('choose-songs', async () => {
 ipcMain.on('version', (e) => (e.returnValue = app.getVersion()));
 
 // ---------------------------------------------------------------------------------------------
+// Your drum samples: `--kits <folder>` (remembered) is searched for the best kick, snare and hats
+
+const kitsFile = () => path.join(app.getPath('userData'), 'kits.txt');
+const AUDIO_HIT = /.(wav|aif|aiff|flac)$/i;
+/** Longest file taken for a drum hit (about 3 s of stereo 24-bit): bigger ones are loops. */
+const MAX_HIT_BYTES = 1.2e6;
+
+ipcMain.handle('kit-files', async () => {
+  let root = null;
+  try {
+    root = (await fsp.readFile(kitsFile(), 'utf8')).trim();
+  } catch {
+    return [];
+  }
+  const out = [];
+  const walk = async (dir, depth) => {
+    if (depth > 8 || out.length > 20000) return;
+    let items = [];
+    try {
+      items = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const it of items) {
+      const p = path.join(dir, it.name);
+      if (it.isDirectory()) await walk(p, depth + 1);
+      else if (AUDIO_HIT.test(it.name)) {
+        const st = await fsp.stat(p).catch(() => null);
+        if (st && st.size > 1000 && st.size <= MAX_HIT_BYTES) out.push({ path: p, rel: path.relative(root, p).split(path.sep).join('/') });
+      }
+    }
+  };
+  await walk(root, 0);
+  return out;
+});
+
+// ---------------------------------------------------------------------------------------------
 // Your VST instruments: notes played through a sound you picked once (see vst/host.py)
 
 const vstDir = () => path.join(app.getPath('userData'), 'vst');
@@ -244,7 +285,7 @@ async function vstSounds() {
   try {
     const cfg = JSON.parse(await fsp.readFile(path.join(vstDir(), 'sounds.json'), 'utf8'));
     const out = {};
-    for (const [role, s] of Object.entries(cfg)) if (fs.existsSync(s.plugin) && fs.existsSync(path.join(vstDir(), s.state))) out[role] = { name: s.name, plugin: s.plugin };
+    for (const [role, s] of Object.entries(cfg)) if (fs.existsSync(path.join(vstDir(), s.dir, 'sound.json'))) out[role] = { name: s.name, plugin: s.plugin };
     return out;
   } catch {
     return {};
@@ -259,7 +300,7 @@ ipcMain.handle('vst-render', async (_e, job) => {
   if (!py) return { error: "Python with pedalboard isn't available (set BEATMAKER_PYTHON, or install Python)" };
   const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-vst-'));
   try {
-    const parts = job.parts.filter((p) => sounds[p.role]).map((p) => ({ ...p, plugin: sounds[p.role].plugin, state: path.join(vstDir(), `${p.role}.state`) }));
+    const parts = job.parts.filter((p) => sounds[p.role]).map((p) => ({ ...p, soundDir: path.join(vstDir(), p.role) }));
     await fsp.writeFile(path.join(tmp, 'job.json'), JSON.stringify({ duration: job.duration, outDir: tmp, parts }));
     const r = await run(py[0], [...py.slice(1), vstScript(), 'render', path.join(tmp, 'job.json')], { onLine: (l) => log('vst', l.slice(0, 300)) });
     if (r.code !== 0) return { error: `The VST host failed: ${r.out.trim().split('\n').slice(-3).join(' ').slice(0, 300)}` };
@@ -273,17 +314,17 @@ ipcMain.handle('vst-render', async (_e, job) => {
   }
 });
 
-/** `Beatmaker.exe --pick-sound melody [--plugin X.vst3]`: open the plugin, choose a sound, close it. */
-async function pickSound({ role, plugin }) {
+/** `Beatmaker.exe --pick-sound melody,drums [--plugin X.vst3]`: for each part, open the plugin, choose a sound, close it. */
+async function pickSound({ roles, plugin, noWindow }) {
   const py = await findPython();
-  const saved = (await vstSounds())[role];
-  const target = plugin || (saved && saved.plugin);
-  if (!py || !target) {
-    log('pick-sound: need Python with pedalboard and a --plugin path');
-    return;
+  if (!py) return log('pick-sound: Python with pedalboard is needed');
+  for (const role of roles) {
+    const saved = (await vstSounds())[role];
+    const target = plugin || (saved && saved.plugin);
+    if (!target) return log(`pick-sound: ${role} needs a --plugin path`);
+    const r = await run(py[0], [...py.slice(1), vstScript(), 'pick', role, target, vstDir(), ...(noWindow ? ['--no-window'] : [])], { show: true, onLine: (l) => log('vst', l.slice(0, 300)) });
+    log('pick-sound', role, 'done', r.code);
   }
-  const r = await run(py[0], [...py.slice(1), vstScript(), 'pick', role, target, vstDir()], { show: true, onLine: (l) => log('vst', l.slice(0, 300)) });
-  log('pick-sound done', r.code);
 }
 // Progress of the song being remade, on the taskbar button and in the title.
 ipcMain.on('progress', (_e, fraction, label) => {
@@ -511,6 +552,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle('app', serveApp);
     protocol.handle('https', serveHttps);
     log('start', app.getVersion(), process.platform, process.arch, JSON.stringify(cli));
+    if (cli.kits) fs.writeFileSync(kitsFile(), path.resolve(cli.kits));
     if (cli.pick) {
       void pickSound(cli.pick).finally(() => app.quit());
       return;
