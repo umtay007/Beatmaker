@@ -8,7 +8,7 @@
  *   recording for a synth stand-in, and after the first time it all works offline.
  * - The page is cross-origin isolated, so the models can use every CPU core.
  */
-const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell, Menu, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = fs.promises;
@@ -34,6 +34,12 @@ const MIME = {
 };
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// The video is recorded in real time: keep drawing and playing when the window is covered,
+// minimized or in the background (Windows otherwise stops painting a hidden window).
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } },
 ]);
@@ -121,8 +127,10 @@ function pump() {
     return;
   }
   busy = job;
+  // A song takes a while: don't let the computer sleep in the middle of it.
+  job.blocker = powerSaveBlocker.start('prevent-app-suspension');
   log('start', job.path, '->', job.outDir);
-  win.webContents.send('job', job);
+  win.webContents.send('job', { id: job.id, path: job.path, name: job.name, outDir: job.outDir, options: job.options });
 }
 
 ipcMain.on('renderer-ready', () => {
@@ -133,7 +141,10 @@ ipcMain.on('renderer-ready', () => {
 ipcMain.on('job-done', async (_e, id, result) => {
   const job = busy && busy.id === id ? busy : null;
   busy = null;
+  win?.setProgressBar(-1);
+  win?.setTitle('Beatmaker');
   if (job) {
+    if (powerSaveBlocker.isStarted(job.blocker)) powerSaveBlocker.stop(job.blocker);
     log('done', job.path, result.ok ? `ok, ${result.files.length} files` : `failed: ${result.error}`);
     if (!result.ok) await fsp.writeFile(path.join(job.outDir, 'error.txt'), `Beatmaker couldn't finish ${job.name}:\n${result.error}\n`).catch(() => {});
     finished.push({ ...job, ok: result.ok });
@@ -172,6 +183,13 @@ ipcMain.handle('choose-songs', async () => {
   return r.filePaths.length;
 });
 ipcMain.on('version', (e) => (e.returnValue = app.getVersion()));
+// Progress of the song being remade, on the taskbar button and in the title.
+ipcMain.on('progress', (_e, fraction, label) => {
+  if (!win || !busy) return;
+  win.setProgressBar(Math.max(0, Math.min(1, Number(fraction) || 0)));
+  win.setTitle(`Beatmaker: ${Math.round(fraction * 100)}% ${busy.name}${queue.length ? ` (${queue.length} more to go)` : ''}`);
+  void label;
+});
 
 // ---------------------------------------------------------------------------------------------
 // The page (app://beatmaker/…), cross-origin isolated

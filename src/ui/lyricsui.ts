@@ -4,7 +4,7 @@
  * the visualizer and the exported video.
  */
 import type { AudioEngine } from '../audio/engine';
-import { alignLyrics, transcribeLyrics, whisperCached } from '../audio/lyricsasr';
+import { alignLyrics, defaultWhisper, transcribeLyrics, whisperCached } from '../audio/lyricsasr';
 import { barTimes, parseLyrics, toLrc, toSongLines, type TimedText } from '../core/lyrics';
 import type { Store } from '../core/store';
 import { downloadBlob, h, icon, modal, pickFile, safeName, toast } from './dom';
@@ -227,7 +227,7 @@ export function showLyrics(store: Store, engine: AudioEngine): void {
   const asr = h('div', { class: 'lyrics-asr' }, asrRow, asrStatus);
   const sayModel = () =>
     void whisperCached().then((c) => {
-      asrStatus.textContent = c ? 'Speech recognition runs in this browser (its model is already downloaded).' : 'Speech recognition runs in this browser; its model downloads once the first time (about 100 MB).';
+      asrStatus.textContent = c ? 'Speech recognition runs on this computer (its model is already downloaded).' : `Speech recognition runs on this computer; its model downloads once the first time (${defaultWhisper() === 'small' ? 'about 280 MB' : 'about 100 MB'}).`;
     });
   let stopSeparating = () => {};
   if (!stems()) {

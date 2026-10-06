@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   onJob: (fn) => ipcRenderer.on('job', (_e, job) => fn(job)),
   jobDone: (id, result) => ipcRenderer.send('job-done', id, result),
   ready: () => ipcRenderer.send('renderer-ready'),
+  progress: (fraction, label) => ipcRenderer.send('progress', fraction, label),
 });

@@ -10,8 +10,17 @@ import { cdn, sameOriginCdn } from '../core/cdn';
 import type { TimedText } from '../core/lyrics';
 
 const LIB_PATH = '@huggingface/transformers@4.3.0/dist/transformers.min.js';
-const MODEL = 'onnx-community/whisper-base_timestamped';
-const REVISION = '608c49e61301901684bc36cac8f74b95ff6b5a8e';
+/** Whisper sizes (8-bit): base is about 80 MB, small about 250 MB and noticeably better on singing. */
+const MODELS = {
+  base: { id: 'onnx-community/whisper-base_timestamped', revision: '608c49e61301901684bc36cac8f74b95ff6b5a8e' },
+  small: { id: 'onnx-community/whisper-small_timestamped', revision: '65caa70f294b46e1c33ff820aae6b16d048ab818' },
+};
+export type WhisperSize = keyof typeof MODELS;
+
+/** The size to use here: small where it can run on every core (the desktop app), base in a browser. */
+export function defaultWhisper(): WhisperSize {
+  return sameOriginCdn() ? 'small' : 'base';
+}
 /** transformers.js keeps its downloads in this Cache Storage cache. */
 const CACHE_NAME = 'transformers-cache';
 const SR = 16000;
@@ -26,6 +35,8 @@ export interface Word {
 export interface LyricsOptions {
   onProgress?: (message: string, fraction: number) => void;
   signal?: AbortSignal;
+  /** Model size (default: defaultWhisper()). */
+  size?: WhisperSize;
   /** Language code ('en', 'es'…); English by default. */
   language?: string;
   /** Bar starts (seconds of the recording): lines break at bar lines where the singing doesn't pause. */
@@ -365,7 +376,7 @@ export async function transcribeLyrics(vocals: AudioBuffer, opts: LyricsOptions 
   const regions = voicedRegions(x);
   const wins = windows(regions, x);
   if (!wins.length) return { words: [], lines: [] };
-  const job = { libUrl: cdn(LIB_PATH), cdn: cdn(''), sameOrigin: sameOriginCdn(), model: MODEL, revision: REVISION, language: opts.language ?? null };
+  const job = { libUrl: cdn(LIB_PATH), cdn: cdn(''), sameOrigin: sameOriginCdn(), model: MODELS[opts.size ?? defaultWhisper()].id, revision: MODELS[opts.size ?? defaultWhisper()].revision, language: opts.language ?? null };
   const cut = (a: number, b: number) => ({ at: a, audio: x.slice(Math.floor(a * SR), Math.min(x.length, Math.ceil(b * SR))) });
   const raw = await listen(
     wins.map(([a, b]) => cut(a, b)),
@@ -574,7 +585,8 @@ export async function whisperCached(): Promise<boolean> {
   try {
     const cache = await caches.open(CACHE_NAME);
     const keys = await cache.keys();
-    return keys.some((k) => k.url.includes(MODEL) && k.url.includes('encoder_model'));
+    const id = MODELS[defaultWhisper()].id;
+    return keys.some((k) => k.url.includes(id) && k.url.includes('encoder_model'));
   } catch {
     return false;
   }

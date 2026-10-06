@@ -27,6 +27,8 @@ export interface DesktopApi {
   onJob(fn: (job: DesktopJob) => void): void;
   jobDone(id: number, result: { ok: boolean; files: string[]; error?: string }): void;
   ready(): void;
+  /** How far the current song is (0..1), for the taskbar. */
+  progress(fraction: number, label: string): void;
 }
 
 export function desktop(): DesktopApi | null {

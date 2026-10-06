@@ -1,3 +1,4 @@
+import { defaultWhisper } from '../audio/lyricsasr';
 import { separateStems, separationModelCached } from '../audio/separate';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
@@ -77,7 +78,7 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     sepOpt,
     check('Try every instrument', 'Slower, sometimes closer. Otherwise a shortlist per part.', () => opts.thorough, (v) => (opts.thorough = v)),
     check('Keep the original vocals', 'Puts the separated vocals on a track of their own (needs “Separate the parts”).', () => opts.keepVocals, (v) => (opts.keepVocals = v)),
-    check('Write out the lyrics', 'Speech recognition (Whisper, in this browser) writes the words from the separated vocals, timed, for the video. Its model downloads once (about 100 MB). Check the words after: singing fools it.', () => opts.lyrics, (v) => (opts.lyrics = v)),
+    check('Write out the lyrics', `Speech recognition (Whisper, on this computer) writes the words from the separated vocals, timed, for the video. Its model downloads once (${defaultWhisper() === 'small' ? 'about 280 MB' : 'about 100 MB'}). Check the words after: singing fools it.`, () => opts.lyrics, (v) => (opts.lyrics = v)),
     check('Tidy repeats', 'Loops say the same thing each time: fixes notes the transcription got wrong on some passes.', () => opts.tidy, (v) => (opts.tidy = v)),
     check(
       'Then export everything',
@@ -129,10 +130,13 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
         if (auto && step !== said) console.info(`[job] ${label}`);
         said = step;
       };
+      // With everything to export, the remake is the first 80% of the job.
+      const share = opts.exportAll ? 0.8 : 1;
       const lines = await autoRemake({ store, engine, actions, separator }, opts, (label, f) => {
         status.textContent = label;
         bar.style.width = `${Math.round(f * 100)}%`;
         trail(label);
+        if (auto) app?.progress(f * share, label);
       }, ctrl.signal);
       summary.replaceChildren(...lines.map((l) => h('li', null, l)));
       summary.hidden = false;
@@ -143,6 +147,7 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
           status.textContent = label;
           bar.style.width = `${Math.round(f * 100)}%`;
           trail(label);
+          if (auto) app?.progress(share + (1 - share) * f, label);
         }, ctrl.signal);
         if (app && outDir) {
           const dir = outDir;

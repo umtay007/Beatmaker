@@ -172,8 +172,10 @@ anyway**.
 - Every download (instrument recordings, the separation, note and speech models, libraries) goes
   through a cache on disk with retries, so a dropped connection can't swap a recording for a synth
   stand-in, and the same song gives the same result every time. After the first song it works
-  offline. The first song downloads about 300 MB; later ones start straight away.
-- It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation.
+  offline. The first song downloads about 600 MB (the models and recordings); later ones start
+  straight away.
+- It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation, and
+  a larger speech model for the lyrics (Whisper small rather than base).
 - From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>] [--quick]
   [--no-lyrics] [--no-video] [--stems] [--quit]` (`--quick` tries a shortlist of instruments,
   `--stems` also saves the separated parts as WAVs, `--quit` closes it when done).
