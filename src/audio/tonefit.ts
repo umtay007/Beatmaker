@@ -94,7 +94,7 @@ export interface ToneFit {
  * The EQ and level that bring `mine` (the track alone) closest to `target` (the original part),
  * over bands between lo and hi Hz where the target has something.
  */
-export function fitTone(target: number[], mine: number[], lo = 60, hi = 12000): ToneFit {
+export function fitTone(target: number[], mine: number[], lo = 60, hi = 12000, maxGain = 6): ToneFit {
   const peak = Math.max(...target);
   const use = TONE_BANDS.map((f, i) => f >= lo && f <= hi && target[i] > peak - 45 && mine[i] > -150);
   const gap = target.map((t, i) => t - mine[i]);
@@ -110,7 +110,7 @@ export function fitTone(target: number[], mine: number[], lo = 60, hi = 12000): 
   };
   let p = { eqLow: 0, eqMid: 0, eqMidFreq: 1000, eqHigh: 0 };
   const before = cost(p).rms;
-  const gains = Array.from({ length: 25 }, (_, i) => -6 + i * 0.5);
+  const gains = Array.from({ length: 4 * maxGain + 1 }, (_, i) => -maxGain + i * 0.5);
   const mids = Array.from({ length: 31 }, (_, i) => Math.round(150 * Math.pow(2, i / 6)));
   for (let it = 0; it < 3; it++) {
     for (const [k, grid] of [['eqLow', gains], ['eqHigh', gains], ['eqMidFreq', mids], ['eqMid', gains]] as const) {

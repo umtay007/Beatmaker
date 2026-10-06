@@ -15,12 +15,11 @@ import { drumNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
-import { renderSong } from '../audio/render';
 import { Attacks, compareRemake, describeComparison } from '../audio/compare';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
 import { followLevels } from '../audio/follow';
-import { fitTone, ltas } from '../audio/tonefit';
+import { fitPartsTone, type TonePart } from '../audio/tonepass';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
@@ -388,29 +387,6 @@ export async function autoRemake(
 
   // 6. Tone and mix
   const tone = phase('tone', 'Fitting each part’s tone…');
-  if (stems) {
-    for (const [i, t] of pitched.entries()) {
-      aborted(signal);
-      const role = roleOf.get(t.id)!;
-      if (role === 'melody') continue; // it shares its stem with the chords, which dominate it
-      tone(i / pitched.length, `Fitting the tone of the ${t.name.toLowerCase()}…`);
-      const stem = role === 'drums' ? stems.drums : role === 'bass' ? stems.bass : stems.other;
-      const span = busiestStretch(store.song, t, 16);
-      const solo = cloneSong(store.song);
-      solo.tracks = solo.tracks.filter((x) => x.id === t.id);
-      const pre = 4;
-      const from = Math.max(0, span.from - pre);
-      const r = await renderSong(solo, { from, to: span.to, tail: 0, dynamics: false });
-      const fit = fitTone(ltas(stem, span.from - off, span.to - off), ltas(r, span.from - from, span.to - from), role === 'bass' ? 30 : 60, role === 'bass' ? 2000 : 12000);
-      store.update(() => {
-        t.eqLow = fit.eqLow;
-        t.eqMid = fit.eqMid;
-        t.eqMidFreq = fit.eqMidFreq;
-        t.eqHigh = fit.eqHigh;
-        t.volume = Math.round(Math.max(0.02, Math.min(1.5, t.volume * Math.pow(10, Math.max(-9, Math.min(9, fit.volumeDb)) / 20))) * 1000) / 1000;
-      });
-    }
-  }
   aborted(signal);
   // Your own VST sounds, where you've picked them (the desktop app): they replace the built-in melody and drums.
   if (stems) {
@@ -420,6 +396,31 @@ export async function autoRemake(
     } catch (e) {
       console.warn('VST sounds failed', e);
       report.push(`VST sounds: not used (${(e as Error).message})`);
+    }
+  }
+  // Each part's tone, fitted against its own stem now that its sound is final.
+  if (stems) {
+    try {
+      const live = store.song.tracks.filter((t) => !t.mute);
+      const of = (...roles: string[]) => live.filter((t) => roles.includes(roleOf.get(t.id) ?? ''));
+      const lead = of('chords', 'melody');
+      const bits: TonePart[] = [
+        { name: 'drums', tracks: of('drums'), stem: stems.drums, lo: 60, hi: 12000, guide: drumTrack ?? live[0] },
+        { name: 'bass', tracks: of('bass'), stem: stems.bass, lo: 30, hi: 2000, guide: of('bass')[0] },
+        { name: 'chords and melody', tracks: lead, stem: stems.other, lo: 60, hi: 12000, guide: lead[0] },
+      ].filter((p) => p.tracks.length);
+      const gaps = await fitPartsTone(store.song, bits, off, (t, fit) => store.update(() => {
+        t.eqLow = fit.eqLow;
+        t.eqMid = fit.eqMid;
+        t.eqMidFreq = fit.eqMidFreq;
+        t.eqHigh = fit.eqHigh;
+        t.volume = Math.round(Math.max(0.02, Math.min(1.5, t.volume * Math.pow(10, Math.max(-9, Math.min(9, fit.volumeDb)) / 20))) * 1000) / 1000;
+      }), (i, n, name) => tone(i / n, name ? `Fitting the tone of the ${name}…` : 'Tone fitted'));
+      report.push(`Tone fitted to each part's own stem (average gap in third-octave bands: ${gaps.map((g) => `${g.name} ${g.before.toFixed(1)} → ${g.after.toFixed(1)} dB`).join(', ')})`);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('Tone fit failed', e);
+      report.push(`Tone: left as it was (${(e as Error).message})`);
     }
   }
   // Each part rises and falls with the original's through the song (a pad that enters for the hook,

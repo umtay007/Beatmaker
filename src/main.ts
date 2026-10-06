@@ -6,6 +6,7 @@ import { compareRemake } from './audio/compare';
 import { activations, extractNotes, toModelRate, transcribePitches } from './audio/transcribe';
 import { findInstrument, spectrogram, resampled, mono, clampFloor } from './audio/finder';
 import { renderSong } from './audio/render';
+import { ltas, TONE_BANDS, fitTone } from './audio/tonefit';
 import { restoreUserKits } from './audio/packs';
 import { onSampleStatus } from './audio/samples';
 import { demoSong } from './beats/templates';
@@ -271,4 +272,4 @@ if (app_) {
 }
 
 // Expose for debugging / automated tests.
-(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches };
+(window as unknown as Record<string, unknown>).beatmaker = { store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches, ltas, TONE_BANDS, fitTone };

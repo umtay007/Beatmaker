@@ -9,6 +9,7 @@ import { KIT_BY_ID, registerKit, unregisterKit, type KitDef } from '../audio/dru
 import { busyStretches, busiestStretch, findInstrument } from '../audio/finder';
 import { guessVoice } from '../audio/packmap';
 import { userKitDef } from '../audio/packs';
+import { spectralGap } from '../audio/tonepass';
 import { putFile, saveKit } from '../core/library';
 import type { Store } from '../core/store';
 import { cloneSong, type Track } from '../core/types';
@@ -103,9 +104,12 @@ export async function buildKitFromLibrary(c: KitContext): Promise<string[]> {
     const score = async (lv: Record<number, number>) => {
       trial.samples!.levels = lv;
       registerKit(trial); // (drops the kit's cached sounds)
-      return partScore(solo(trial.id), c.stem, c.offset, 'drums', spans);
+      // The match of the hits and levels, less 1.5 points for every dB the average spectrum is off.
+      const s = solo(trial.id);
+      return (await partScore(s, c.stem, c.offset, 'drums', spans)) - 1.5 * (await spectralGap(s, c.stem, c.offset, spans, 60, 12000));
     };
-    let after = await score(levelsNow);
+    const scoreNow = await score(levelsNow);
+    let after = scoreNow;
     let lv = { ...levelsNow };
     for (let round = 0; round < 2; round++) {
       for (const v of chosen.keys()) {
@@ -123,6 +127,8 @@ export async function buildKitFromLibrary(c: KitContext): Promise<string[]> {
     trial.samples!.levels = lv;
     Object.assign(levels, lv);
     registerKit(trial);
+    // Back to the plain match for the comparison with the built-in kit.
+    after = await partScore(solo(trial.id), c.stem, c.offset, 'drums', spans);
     const names = [...chosen.keys()].map((v) => `${NAMES[v] ?? v}: ${base(picks[v].replace(/\\/g, '/'))}`).join(', ');
     if (after > before + 1) {
       // Keep it: the recordings go into the library, so the project carries them.
