@@ -4,9 +4,8 @@
  * chords and melody (the "other" part of the song, which is usually one instrument) are played with
  * it and come back as audio tracks that replace the built-in ones.
  *
- * A VST sound stays unless its notes start against the original's (the attack measure in
- * audio/compare.ts, which also says how it compares with the built-in sound): a plugin can't make
- * a bad transcription good.
+ * A VST sound stays unless its notes start clearly less like the original's than the built-in
+ * sound's do (the attack measure in audio/compare.ts): a plugin can't make a bad transcription good.
  */
 import { Attacks } from '../audio/compare';
 import type { Role } from '../audio/compare';
@@ -23,8 +22,8 @@ const ROLES: { role: 'melody' | 'chords'; sounds: string[]; label: string }[] = 
   { role: 'melody', sounds: ['melody'], label: 'melody' },
   { role: 'chords', sounds: ['chords', 'melody'], label: 'chords' },
 ];
-/** A VST sound was picked on purpose: it is used unless its attacks run against the original's (a correlation below this). */
-const LEAST = 0;
+/** A VST sound was picked on purpose, so it only loses to the built-in sound when its attacks are clearly less like the original's (Walk: 0.54 against 0.76 sounded further off). */
+const TOLERANCE = 0.1;
 
 export interface VstContext {
   store: Store;
@@ -80,8 +79,8 @@ export async function applyVstSounds(c: VstContext): Promise<string[]> {
       };
       const before = att ? await att.score(solo([builtin])) : 0;
       const after = att ? await att.scoreAudio(buf) : 0;
-      if (att && after < LEAST) {
-        report.push(`VST ${r.label}: ${name} starts its notes against the original's (${after.toFixed(2)}; the built-in sound ${before.toFixed(2)}), so the built-in one stays`);
+      if (att && after + TOLERANCE < before) {
+        report.push(`VST ${r.label}: ${name} starts its notes less like the original's (${after.toFixed(2)}) than the built-in ${builtin.instrument} sound does (${before.toFixed(2)}), so the built-in one stays`);
         continue;
       }
       const track = await vocalTrack(buf, song, builtin.color, { name: `${builtin.name} (${name})`, withOriginal: false });
