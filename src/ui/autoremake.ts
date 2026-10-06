@@ -16,6 +16,7 @@ import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
 import { renderSong } from '../audio/render';
+import { compareRemake, describeComparison, partScore } from '../audio/compare';
 import { fitTone, ltas } from '../audio/tonefit';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
@@ -74,7 +75,8 @@ export async function autoRemake(
   const buf = engine.backingBuffer;
   if (!buf) throw new Error('Load the original song first');
   const report: string[] = [];
-  const weights = { grid: 3, separate: opts.separate && c.separator ? 40 : 0, notes: 25, tidy: 2, lyrics: opts.lyrics && opts.separate && c.separator ? 8 : 0, find: 20, tone: 5, mix: 5 };
+  const stemsWanted = opts.separate && !!c.separator;
+  const weights = { grid: 3, separate: opts.separate && c.separator ? 40 : 0, notes: 25, tidy: 2, lyrics: opts.lyrics && opts.separate && c.separator ? 8 : 0, find: 20, settle: stemsWanted ? 6 : 0, tone: 5, mix: 5 };
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   let done = 0;
   const phase = (key: keyof typeof weights, label: string) => {
@@ -255,6 +257,8 @@ export async function autoRemake(
   // 5. Instruments
   const find = phase('find', 'Finding instruments…');
   const pitched = store.song.tracks.filter((t) => roleOf.has(t.id));
+  /** Each track's best few sounds (with the volume each needs), for settling the close calls together. */
+  const shortlist = new Map<string, { id: string; gain: number; base: number }[]>();
   for (const [i, t] of pitched.entries()) {
     aborted(signal);
     const role = roleOf.get(t.id)!;
@@ -291,6 +295,8 @@ export async function autoRemake(
       }
       const best = res[0];
       if (best) {
+        const gainOf = (levelDb: number) => Math.pow(10, Math.max(-18, Math.min(18, levelDb)) / 20);
+        shortlist.set(t.id, res.slice(0, 5).map((r) => ({ id: r.id, gain: gainOf(r.levelDb), base: t.volume })));
         const gain = Math.pow(10, Math.max(-18, Math.min(18, best.levelDb)) / 20);
         store.update(() => {
           t.instrument = best.id;
@@ -304,6 +310,55 @@ export async function autoRemake(
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
       report.push(`${t.name}: kept ${instrumentFor(t.instrument).label} (${(e as Error).message})`);
+    }
+  }
+
+  // Chords and melody share one stem, so a sound is judged best by how the two sound together:
+  // try each one's best few against the stem, over the stretches where the melody plays most.
+  const settle = phase('settle', 'Settling the melody and chords together…');
+  const lead = store.song.tracks.find((t) => roleOf.get(t.id) === 'melody');
+  const pads = store.song.tracks.find((t) => roleOf.get(t.id) === 'chords');
+  if (stems && lead && pads && shortlist.has(lead.id) && shortlist.has(pads.id)) {
+    try {
+      const spans = busyStretches(store.song, lead, 8, 3);
+      const together = (): Promise<number> => {
+        const solo = cloneSong(store.song);
+        solo.tracks = solo.tracks.filter((x) => x.id === lead.id || x.id === pads.id);
+        for (const x of solo.tracks) x.mute = x.solo = false;
+        return partScore(solo, stems.other, off, 'other', spans);
+      };
+      const volumeOf = (o: { gain: number; base: number }) => Math.round(Math.max(0.02, Math.min(1.5, o.base * o.gain)) * 1000) / 1000;
+      const before = { lead: lead.instrument, pads: pads.instrument };
+      const first = await together();
+      let bestScore = first;
+      for (const [k, t] of [lead, pads].entries()) {
+        const options = shortlist.get(t.id)!;
+        let pick = options.find((o) => o.id === t.instrument) ?? options[0];
+        for (const [oi, o] of options.entries()) {
+          aborted(signal);
+          settle((k + oi / options.length) / 2);
+          if (o.id === pick.id) continue;
+          store.update(() => {
+            t.instrument = o.id;
+            t.volume = volumeOf(o);
+          });
+          const s = await together();
+          if (s > bestScore + 1) {
+            bestScore = s;
+            pick = o;
+          }
+        }
+        store.update(() => {
+          t.instrument = pick.id;
+          t.volume = volumeOf(pick);
+        });
+      }
+      if (lead.instrument !== before.lead || pads.instrument !== before.pads) {
+        report.push(`Chords and melody together: ${instrumentFor(pads.instrument).label} and ${instrumentFor(lead.instrument).label} (was ${instrumentFor(before.pads).label} and ${instrumentFor(before.lead).label}; matches the original ${Math.round(first)} → ${Math.round(bestScore)} of 100 over the busiest bars)`);
+      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      report.push(`Chords and melody: kept the sounds found one by one (${(e as Error).message})`);
     }
   }
 
@@ -362,6 +417,20 @@ export async function autoRemake(
       if (lead) store.update(() => (lead.echo = 0.2));
     }
     if (changes.length) report.push(`Master: ${changes.join(' · ')}`);
+  }
+  // 7. How close is it? Each part against the original's matching stem.
+  if (stems) {
+    step('Comparing the remake with the original…', 0.99);
+    try {
+      const secs = store.song.sections ?? [];
+      const sectionAt = (bar: number) => [...secs].reverse().find((s) => s.tick <= (bar - 1) * BAR)?.name ?? 'Intro';
+      const roles = new Map([...roleOf].map(([id, r]) => [id, r]));
+      const cmp = await compareRemake(store.song, { drums: stems.drums, bass: stems.bass, other: stems.other }, off, roles);
+      report.push(...describeComparison(cmp, sectionAt));
+    } catch (e) {
+      console.warn('Comparison failed', e);
+      report.push(`Couldn't compare with the original (${(e as Error).message})`);
+    }
   }
   step('Done', 1);
   return report;

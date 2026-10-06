@@ -76,7 +76,8 @@ export class VoiceKit {
     const n = this.ctx.createBufferSource();
     n.buffer = noiseBuf(this.ctx);
     n.loop = true;
-    n.start(this.a.time, Math.random());
+    // Where in the noise it starts follows the note, not chance: the same song renders the same.
+    n.start(this.a.time, Math.abs(Math.sin(this.a.time * 12.9898 + this.a.pitch * 78.233) * 43758.5453) % 1);
     this.srcs.push(n);
     return n;
   }
@@ -90,7 +91,8 @@ export class VoiceKit {
   filter(type: BiquadFilterType, freq: number, q = 0.7): BiquadFilterNode {
     const f = this.ctx.createBiquadFilter();
     f.type = type;
-    f.frequency.value = freq;
+    // Below Nyquist: the finder renders at 22.05 kHz, and a higher value only floods the console.
+    f.frequency.value = Math.min(freq, this.ctx.sampleRate / 2);
     f.Q.value = q;
     return f;
   }
@@ -166,7 +168,11 @@ export function noiseBuf(ctx: BaseAudioContext): AudioBuffer {
   if (!b) {
     b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = b.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    let seed = 12345;
+    for (let i = 0; i < d.length; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      d[i] = (seed / 4294967296) * 2 - 1;
+    }
     noiseBufs.set(ctx, b);
   }
   return b;

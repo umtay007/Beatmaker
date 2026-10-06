@@ -360,7 +360,7 @@ export function playSample(
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.Q.value = 0.5;
-    lp.frequency.value = 1400 + 17000 * a.vel * a.vel;
+    lp.frequency.value = Math.min(1400 + 17000 * a.vel * a.vel, ctx.sampleRate / 2);
     lp.connect(rel);
     dest = lp;
   }

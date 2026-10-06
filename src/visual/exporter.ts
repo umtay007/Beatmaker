@@ -59,10 +59,13 @@ export function exportVideo(
 ): ExportJob {
   let cancelled = false;
   let progressTimer = 0;
+  /** The frame timer. */
+  let frames = 0;
   let finishEnded: (() => void) | null = null;
 
   const cleanup = () => {
     clearInterval(progressTimer);
+    clearTimeout(frames);
     engine.onEnded = null;
     engine.exportMode = false;
     player.endExport();
@@ -96,8 +99,11 @@ export function exportVideo(
     player.render();
 
     const canvas = player.post.canvas;
-    const vstream = canvas.captureStream(v.exportFps);
-    const stream = new MediaStream([...vstream.getVideoTracks(), ...engine.streamDest.stream.getAudioTracks()]);
+    // Frames are drawn and captured by a timer, not left to the page's paint cycle: a minimized or
+    // covered window gets no paints, and the video would come out at a frame or two a second.
+    const vstream = canvas.captureStream(0);
+    const vtrack = vstream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+    const stream = new MediaStream([vtrack, ...engine.streamDest.stream.getAudioTracks()]);
     const pixels = canvas.width * canvas.height;
     const qual = v.exportQuality === 'high' ? 0.22 : v.exportQuality === 'medium' ? 0.12 : 0.06;
     const videoBitsPerSecond = Math.round(Math.min(40e6, Math.max(2e6, pixels * v.exportFps * qual)));
@@ -113,6 +119,20 @@ export function exportVideo(
     });
     rec.start(250);
     const recStart = performance.now();
+    const frameMs = 1000 / v.exportFps;
+    let nextFrame = recStart;
+    const drawFrame = () => {
+      try {
+        player.render();
+        vtrack.requestFrame();
+      } catch (e) {
+        console.error(e);
+      }
+      // Next on the grid (not a fixed delay after this one), skipping any it fell behind on.
+      nextFrame += frameMs * Math.max(1, Math.ceil((performance.now() - nextFrame) / frameMs));
+      frames = window.setTimeout(drawFrame, Math.max(0, nextFrame - performance.now()));
+    };
+    frames = window.setTimeout(drawFrame, 0);
 
     const total = until - from;
     progressTimer = window.setInterval(() => {
@@ -126,6 +146,7 @@ export function exportVideo(
     await new Promise((r) => setTimeout(r, 150));
     if (rec.state !== 'inactive') rec.stop();
     const recSeconds = (performance.now() - recStart) / 1000;
+    clearTimeout(frames);
     await stopped;
     vstream.getTracks().forEach((t) => t.stop());
     cleanup();

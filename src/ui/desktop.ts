@@ -8,7 +8,7 @@ export interface DesktopJob {
   path: string;
   name: string;
   outDir: string;
-  options: { thorough: boolean; lyrics: boolean; video: boolean; stems: boolean };
+  options: { thorough: boolean; lyrics: boolean; vocals: boolean; quick?: boolean; tidy?: boolean; video: boolean; stems: boolean };
 }
 
 export interface DesktopApi {

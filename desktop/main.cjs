@@ -63,13 +63,17 @@ function log(...parts) {
 
 function parseArgs(argv) {
   const songs = [];
-  const options = { thorough: false, lyrics: true, video: true, stems: false };
+  // Instrumental by default: no lyrics, no vocals.
+  const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true };
   let out = null;
   let quit = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
-    else if (a === '--no-lyrics') options.lyrics = false;
+    else if (a === '--lyrics') options.lyrics = true;
+    else if (a === '--vocals') options.vocals = true;
+    else if (a === '--no-tidy') options.tidy = false;
+    else if (a === '--quick') options.quick = true; // analysis and report only, no exports
     else if (a === '--no-video') options.video = false;
     else if (a === '--stems') options.stems = true;
     else if (a === '--quit') quit = true;
@@ -122,7 +126,7 @@ function pump() {
     if (!finished.length) return;
     const last = finished[finished.length - 1];
     if (cli.quit) app.quit();
-    else if (last.ok) void shell.openPath(last.outDir);
+    else if (last.ok && !cli.options.quick) void shell.openPath(last.outDir);
     finished.length = 0;
     return;
   }

@@ -165,11 +165,18 @@ anyway**.
 - **Drag songs onto Beatmaker.exe** (or use **File → Remake songs and export everything…**). Each
   is remade with nothing to click, and a folder named `<song> - Beatmaker` appears next to it with
   the music video (`.mp4`), an `.mp3` of the remake, MIDI (`-midi.zip`: a file per track and the
-  whole song), the lyrics (`.lrc`, timed to the remake), the project (`.beatmaker.zip`, to open
-  and change anything) and a report of what it found. The folder opens when it's done.
+  whole song), the project (`.beatmaker.zip`, to open and change anything) and a report of what it
+  found. The folder opens when it's done. It is the instrumental: no vocals and no lyrics unless
+  you ask (`--vocals`, `--lyrics`).
 - It separates the parts, tries a shortlist of mostly recorded instruments for each part (trying
   every one lets synth pads beat the strings they sound like), and settles close calls by
-  comparing over three parts of the song.
+  comparing over three parts of the song. The chords and melody share one stem, so their sounds
+  are settled together by how the pair matches it.
+- The report ends by **comparing the remake with the original**, part by part: the separated
+  drums, bass and melodic parts against the remake's matching tracks, scored 0-100 on whether the
+  hits land together, the pitches agree, the loudness rises and falls alike and the tone is alike,
+  with the weakest bars and where the EQ is off. It is a measure to improve against, not a claim
+  of an exact copy.
 - Every download (instrument recordings, the separation, note and speech models, libraries) goes
   through a cache on disk with retries, so a dropped connection can't swap a recording for a synth
   stand-in, and the same song gives the same result every time. After the first song it works
@@ -178,8 +185,10 @@ anyway**.
 - It uses every CPU core and, where there is one, the graphics card (WebGPU) for separation, and
   a larger speech model for the lyrics (Whisper small rather than base).
 - From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>]
-  [--all-instruments] [--no-lyrics] [--no-video] [--stems] [--quit]` (`--stems` also saves the
-  separated parts as WAVs, `--quit` closes it when done).
+  [--all-instruments] [--lyrics] [--vocals] [--no-video] [--no-tidy] [--stems] [--quick] [--quit]`
+  (`--stems` also saves the separated parts as WAVs, `--quick` stops after the analysis and the
+  comparison, with nothing exported, `--quit` closes it when done).
+- The video is recorded at a steady 30 frames a second even with the window minimized or covered.
 - The log is `%APPDATA%\Beatmaker\beatmaker.log`, and the download cache is next to it.
 
 Build it with `cd desktop && npm install && npm run dist:win` (`dist:linux` for Linux). The

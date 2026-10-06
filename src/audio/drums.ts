@@ -335,7 +335,7 @@ function renderVoice(ctx: OfflineAudioContext, p: DrumP): void {
       hp.frequency.value = p.hp;
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = p.lp;
+      lp.frequency.value = Math.min(p.lp, ctx.sampleRate / 2);
       const ng = ctx.createGain();
       decayEnv(ng.gain, t, p.noise * 0.75, p.noiseDecay);
       n.connect(hp).connect(lp).connect(ng).connect(out);

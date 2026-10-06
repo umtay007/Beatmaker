@@ -60,19 +60,19 @@ export function finderCandidates(track: Track, recordedOnly = false): FinderCand
 // ---------------------------------------------------------------------------------------------
 // Spectrogram in log-spaced bands
 
-const PER_OCT = 24;
-const F_LO = 40;
-const N_BANDS = PER_OCT * 8; // 40 Hz .. ~10 kHz
+export const PER_OCT = 24;
+export const F_LO = 40;
+export const N_BANDS = PER_OCT * 8; // 40 Hz .. ~10 kHz
 const bandOf = (f: number) => PER_OCT * Math.log2(f / F_LO);
 
-interface Spec {
+export interface Spec {
   /** Frame times in song seconds. */
   times: number[];
   /** dB per band per frame. */
   db: Float32Array[];
 }
 
-function mono(buf: AudioBuffer, from: number, to: number): Float32Array {
+export function mono(buf: AudioBuffer, from: number, to: number): Float32Array {
   const sr = buf.sampleRate;
   const a = Math.round(from * sr);
   const n = Math.max(0, Math.round((to - from) * sr));
@@ -89,10 +89,10 @@ function mono(buf: AudioBuffer, from: number, to: number): Float32Array {
 }
 
 /** Analysis rate: renders are 2-3x quicker than at 44.1 kHz, and 10 kHz is as high as the bands go. */
-const RATE = 22050;
+export const RATE = 22050;
 
 /** The stretch of a recording as mono at RATE, starting at recording time `from`. */
-async function resampled(buf: AudioBuffer, from: number, to: number): Promise<Float32Array> {
+export async function resampled(buf: AudioBuffer, from: number, to: number): Promise<Float32Array> {
   const len = Math.max(1, Math.round((to - from) * RATE));
   const ctx = new OfflineAudioContext(1, len, RATE);
   const src = ctx.createBufferSource();
@@ -104,7 +104,7 @@ async function resampled(buf: AudioBuffer, from: number, to: number): Promise<Fl
 }
 
 /** `x` starts at song time `t0`. */
-function spectrogram(x: Float32Array, sr: number, t0: number): Spec {
+export function spectrogram(x: Float32Array, sr: number, t0: number): Spec {
   // About 93 ms windows and 23 ms steps at any rate.
   const N = sr > 30000 ? 4096 : 2048;
   const hop = N / 4;
@@ -198,7 +198,7 @@ function buildMask(spec: Spec, notes: Sounding[], others: Sounding[], drums: boo
 
 const FLOOR = 60;
 
-function clampFloor(spec: Spec): void {
+export function clampFloor(spec: Spec): void {
   let peak = -200;
   for (const r of spec.db) for (const v of r) peak = Math.max(peak, v);
   const floor = peak - FLOOR;

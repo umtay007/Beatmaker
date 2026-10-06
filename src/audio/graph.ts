@@ -51,12 +51,15 @@ function makeImpulse(ctx: BaseAudioContext, seconds = 2.4, decay = 3.2): AudioBu
   if (cached) return cached;
   const len = Math.floor(ctx.sampleRate * seconds);
   const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  // A fixed noise (as in the drums), so the same song always renders the same.
+  let seed = 7;
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     let lp = 0;
     for (let i = 0; i < len; i++) {
       const x = i / len;
-      const n = Math.random() * 2 - 1;
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      const n = (seed / 4294967296) * 2 - 1;
       lp += (n - lp) * (0.25 + 0.6 * (1 - x));
       d[i] = lp * Math.pow(1 - x, decay) * (i < ctx.sampleRate * 0.01 ? i / (ctx.sampleRate * 0.01) : 1);
     }

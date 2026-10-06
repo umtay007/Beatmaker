@@ -16,7 +16,7 @@ const separatorCached = separationModelCached;
 export interface AutoRun {
   file: File;
   outDir: string | null;
-  options: { thorough: boolean; lyrics: boolean; video: boolean; stems: boolean };
+  options: { thorough: boolean; lyrics: boolean; vocals: boolean; quick?: boolean; tidy?: boolean; video: boolean; stems: boolean };
   onDone(result: { ok: boolean; files: string[]; error?: string }): void;
 }
 
@@ -28,10 +28,10 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
   const opts = {
     separate: true,
     thorough: auto?.options.thorough ?? false,
-    keepVocals: true,
-    tidy: true,
+    keepVocals: auto?.options.vocals ?? true,
+    tidy: auto?.options.tidy ?? true,
     lyrics: auto?.options.lyrics ?? true,
-    exportAll: !!auto || !!app,
+    exportAll: !auto?.options.quick && (!!auto || !!app),
     video: auto?.options.video ?? true,
     stems: auto?.options.stems ?? false,
   };
@@ -139,6 +139,7 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
         trail(label);
         if (auto) app?.progress(f * share, label);
       }, ctrl.signal);
+      if (auto) for (const l of lines) console.info(`[job] report: ${l}`);
       summary.replaceChildren(...lines.map((l) => h('li', null, l)));
       summary.hidden = false;
       let files: string[] = [];
