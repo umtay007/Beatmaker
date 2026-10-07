@@ -21,6 +21,9 @@ import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
 import { followLevels } from '../audio/follow';
 import { fitPartsTone, type TonePart } from '../audio/tonepass';
+import { earsAvailable, listen as hearAll, zscores } from './ears';
+import { mono, RATE, resampled } from '../audio/finder';
+import { renderSong } from '../audio/render';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
@@ -356,8 +359,8 @@ export async function autoRemake(
   const lead = store.song.tracks.find((t) => roleOf.get(t.id) === 'melody');
   const pads = store.song.tracks.find((t) => roleOf.get(t.id) === 'chords');
   if (stems && lead && pads) {
-    const before = { lead: lead.instrument, pads: pads.instrument };
     const tl2 = new Timeline(store.song);
+    const ears = await earsAvailable();
     for (const [k, t] of [lead, pads].entries()) {
       try {
         const role = roleOf.get(t.id)! as 'chords' | 'melody';
@@ -372,28 +375,57 @@ export async function autoRemake(
           Object.assign(x.tracks[0], { instrument: id, mute: false, solo: false, eqLow: 0, eqMid: 0, eqHigh: 0 });
           return x;
         };
-        let best = { id: t.instrument, score: -2 };
-        let current = -2;
+        const scored: { id: string; attack: number; clips?: Float32Array[] }[] = [];
+        // The ears hear the whole other part (chords, melody and anything alongside) with this track's
+        // sound swapped, over the first 10 s of each busy stretch, against the same clips of the stem.
+        const earSpans = spans.map((sp) => ({ from: sp.from, to: Math.min(sp.to, sp.from + 10) }));
+        const hear = ears ? await Promise.all(earSpans.map((sp) => resampled(stems.other, sp.from - off, sp.to - off))) : null;
+        const part = (id: string): Song => {
+          const x = cloneSong(store.song);
+          x.tracks = x.tracks.filter((y) => ['chords', 'melody', 'extra'].includes(roleOf.get(y.id) ?? '') && !y.mute);
+          for (const y of x.tracks) Object.assign(y, { solo: false, eqLow: 0, eqMid: 0, eqHigh: 0, ...(y.id === t.id ? { instrument: id } : {}) });
+          return x;
+        };
         for (const [i, id] of ids.entries()) {
           aborted(signal);
           settle((k + i / ids.length) / 2);
-          let sc = -2;
           try {
-            sc = await att.score(solo(id));
+            const attack = await att.score(solo(id));
+            let clips: Float32Array[] | undefined;
+            if (hear) {
+              const song2 = part(id);
+              clips = [];
+              for (const sp of earSpans) {
+                const pre = Math.min(4, sp.from);
+                clips.push(mono(await renderSong(song2, { from: sp.from - pre, to: sp.to, tail: 0, dynamics: false, sampleRate: RATE }), pre, pre + (sp.to - sp.from)));
+              }
+            }
+            scored.push({ id, attack, clips });
           } catch {
             continue; // a recording that can't be had right now
           }
-          if (id === t.instrument) current = sc;
-          if (sc > best.score) best = { id, score: sc };
         }
-        // A new sound has to start its notes clearly more like the original's than the current one.
-        if (best.id !== t.instrument && best.score > current + 0.03) {
+        const heard = hear && scored.length > 1 ? await hearAll(hear, scored.map((c) => c.clips!), RATE) : null;
+        // Tone and texture (both listening models) count most; how the notes start counts half as much.
+        const za = zscores(scored.map((c) => c.attack));
+        const zg = heard ? zscores(heard.general) : null;
+        const zm = heard ? zscores(heard.music) : null;
+        const total = scored.map((_, i) => za[i] * (heard ? 0.5 : 1) + (zg ? zg[i] : 0) + (zm ? zm[i] : 0));
+        const cur = scored.findIndex((c) => c.id === t.instrument);
+        let top = 0;
+        total.forEach((v, i) => {
+          if (v > total[top]) top = i;
+        });
+        // A new sound has to beat the current one clearly (half a spread's worth).
+        if (cur >= 0 && top !== cur && total[top] > total[cur] + 0.5) {
+          const best = scored[top];
           const o = known.get(best.id);
           store.update(() => {
             t.instrument = best.id;
             if (o) t.volume = Math.round(Math.max(0.02, Math.min(1.5, o.base * o.gain)) * 1000) / 1000;
           });
-          report.push(`${t.name}: ${instrumentFor(best.id).label}, whose notes start like the original's (${best.score.toFixed(2)}; ${instrumentFor(before[k === 0 ? 'lead' : 'pads']).label}: ${current.toFixed(2)})`);
+          const why = heard ? `sounds closest to the original by ear (${heard.general[top].toFixed(2)} against ${heard.general[cur].toFixed(2)}) and starts its notes ${best.attack >= scored[cur].attack ? 'at least as' : 'less'} like it` : `starts its notes like the original's (${best.attack.toFixed(2)}; ${scored[cur].attack.toFixed(2)} before)`;
+          report.push(`${t.name}: ${instrumentFor(best.id).label} ${why}`);
         }
       } catch (e) {
         if ((e as Error).name === 'AbortError') throw e;
@@ -452,8 +484,15 @@ export async function autoRemake(
         { name: 'chords and melody', tracks: of('chords', 'melody', 'extra'), stem: stems.other },
         { name: 'bass', tracks: of('bass'), stem: stems.bass },
       ].filter((p) => p.tracks.length);
-      const moved = await followLevels(store.song, parts, off, (t, lane) => store.update(() => (t.automation = { ...t.automation, volume: lane })));
-      report.push(`Levels follow the original bar by bar (bars changed by 2 dB or more: ${parts.map((p, i) => `${p.name} ${moved[i]}`).join(', ')})`);
+      let silentBars = 0;
+      const moved = await followLevels(store.song, parts, off, (t, lane, silent) =>
+        store.update(() => {
+          t.automation = { ...t.automation, volume: lane };
+          // The original's part plays nothing in these bars (no drums in the intro, say): neither does ours.
+          silentBars += silent.length;
+          if (silent.length && t.instrument !== 'sampler') t.notes = t.notes.filter((n) => !silent.includes(Math.floor(n.start / BAR)));
+        }));
+      report.push(`Levels follow the original bar by bar (bars changed by 2 dB or more: ${parts.map((p, i) => `${p.name} ${moved[i]}`).join(', ')}; ${silentBars} bars of parts the original leaves out are silenced)`);
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
       console.warn('Following levels failed', e);

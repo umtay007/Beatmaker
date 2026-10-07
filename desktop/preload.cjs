@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
     const p = webUtils.getPathForFile(file);
     return p ? ipcRenderer.invoke('out-dir-for', p) : Promise.resolve(null);
   },
+  earsReady: () => ipcRenderer.invoke('ears-ready'),
+  earsScore: (refs, cands) => ipcRenderer.invoke('ears-score', refs, cands),
   ymt3Ready: () => ipcRenderer.invoke('ymt3-ready'),
   ymt3Run: (wav, seconds) => ipcRenderer.invoke('ymt3-run', wav, seconds),
   kitFiles: () => ipcRenderer.invoke('kit-files'),

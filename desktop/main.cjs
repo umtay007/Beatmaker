@@ -354,6 +354,37 @@ ipcMain.handle('ymt3-run', async (_e, wav, seconds) => {
   }
 });
 
+// The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
+// sounds most like a reference, by music-listening models.
+ipcMain.handle('ears-ready', () => {
+  const root = ymt3Root();
+  return !!root && fs.existsSync(path.join(root, 'hf'));
+});
+/** refs: WAV bytes of the reference clips; cands: for each candidate, WAV bytes of its clips (one per reference clip). */
+ipcMain.handle('ears-score', async (_e, refs, cands) => {
+  const root = ymt3Root();
+  if (!root) return { error: 'The ears are not set up (--ymt3 <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-ears-'));
+  try {
+    const write = async (name, bytes) => {
+      const p = path.join(tmp, name);
+      await fsp.writeFile(p, Buffer.from(bytes));
+      return p;
+    };
+    const job = { ref: await Promise.all(refs.map((b, i) => write(`ref${i}.wav`, b))), cands: await Promise.all(cands.map((c, j) => Promise.all(c.map((b, i) => write(`c${j}_${i}.wav`, b))))) };
+    await fsp.writeFile(path.join(tmp, 'job.json'), JSON.stringify(job));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', TEMP: tmp, TMP: tmp };
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'ears.py'), root, path.join(tmp, 'job.json')], { spawn: { env } });
+    const m = /RESULT (.*)/.exec(r.out);
+    if (!m) return { error: `The ears failed: ${r.out.trim().split(/\r?\n/).slice(-2).join(' ').slice(0, 240)}` };
+    return JSON.parse(m[1]);
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 /** `Beatmaker.exe --pick-sound melody,drums [--plugin X.vst3]`: for each part, open the plugin, choose a sound, close it. */
 async function pickSound({ roles, plugin, noWindow }) {
   const py = await findPython();
