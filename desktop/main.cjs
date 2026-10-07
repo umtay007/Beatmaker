@@ -72,6 +72,7 @@ function parseArgs(argv) {
   let plugin = null;
   let noWindow = false;
   let kits = null;
+  let ymt3 = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
@@ -88,11 +89,12 @@ function parseArgs(argv) {
     else if (a === '--plugin') plugin = argv[++i] ?? null;
     else if (a === '--no-window') noWindow = true;
     else if (a === '--kits') kits = argv[++i] ?? null;
+    else if (a === '--ymt3') ymt3 = argv[++i] ?? null;
     else if (a === '--out') out = argv[++i] ?? null;
     else if (a.startsWith('--out=')) out = a.slice(6);
     else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
   }
-  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits };
+  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits, ymt3 };
 }
 
 // The first entries are the program (and the app folder when run as `electron .`).
@@ -309,6 +311,42 @@ ipcMain.handle('vst-render', async (_e, job) => {
     const files = {};
     for (const p of parts) files[p.role] = await fsp.readFile(path.join(tmp, `${p.role}.wav`));
     return { files };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// YourMT3+ (`--ymt3 <folder>`, remembered): a second transcription that labels notes by instrument
+
+const ymt3File = () => path.join(app.getPath('userData'), 'ymt3.txt');
+function ymt3Root() {
+  try {
+    const root = fs.readFileSync(ymt3File(), 'utf8').trim();
+    return fs.existsSync(path.join(root, 'venv', 'Scripts', 'python.exe')) && fs.existsSync(path.join(root, 'code')) ? root : null;
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('ymt3-ready', () => !!ymt3Root());
+/** wav bytes (the stem) → { notes: [{ p, s, e, v, prog }] } (seconds from the start of the wav), or { error }. */
+ipcMain.handle('ymt3-run', async (_e, wav, seconds) => {
+  const root = ymt3Root();
+  if (!root) return { error: 'YourMT3+ is not set up (start Beatmaker once with --ymt3 <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-ymt3-'));
+  try {
+    const input = path.join(tmp, 'in.wav');
+    const out = path.join(tmp, 'out.json');
+    await fsp.writeFile(input, Buffer.from(wav));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', TEMP: tmp, TMP: tmp };
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'ymt3.py'), root, input, '0', String(seconds), '2', out], {
+      spawn: { env },
+      onLine: (l) => /^(segments|batch|notes)/.test(l) && log('ymt3', l.slice(0, 160)),
+    });
+    if (r.code !== 0 || !fs.existsSync(out)) return { error: `YourMT3+ failed: ${r.out.trim().split(/\r?\n/).slice(-2).join(' ').slice(0, 240)}` };
+    return { notes: JSON.parse(await fsp.readFile(out, 'utf8')) };
   } catch (e) {
     return { error: String(e && e.message) };
   } finally {
@@ -556,6 +594,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle('https', serveHttps);
     log('start', app.getVersion(), process.platform, process.arch, JSON.stringify(cli));
     if (cli.kits) fs.writeFileSync(kitsFile(), path.resolve(cli.kits));
+    if (cli.ymt3) fs.writeFileSync(ymt3File(), path.resolve(cli.ymt3));
     if (cli.pick) {
       void pickSound(cli.pick).finally(() => app.quit());
       return;

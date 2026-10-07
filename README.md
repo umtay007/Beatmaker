@@ -203,6 +203,15 @@ anyway**.
   those samples. The report says how the attacks of its notes compare with the original's, and a
   sound whose attacks run against the original's is left out. Needs Python with `pedalboard` for picking (the app installs it with pip
   if it's missing; set `BEATMAKER_PYTHON` to use a particular Python).
+- **A second transcription, YourMT3+** (optional, `--ymt3 <folder>`, remembered). Basic Pitch folds
+  a struck piano into the held pad line it hears under it; YourMT3+ (a multi-instrument model that
+  labels each note's instrument) finds it. Its notes are grouped by instrument family and a group
+  is kept only if the original's spectrum really does rise at those notes (a piano does; a string
+  ensemble heard as notes does not); each kept group is played by a matching built-in instrument on
+  a track of its own. It needs a folder with `code/` (the [mimbres/YourMT3](https://huggingface.co/spaces/mimbres/YourMT3)
+  Space with its `YPTF.MoE+Multi (noPS)` checkpoint) and `venv/` (Python 3.10 with PyTorch,
+  `lightning`, `transformers==4.45.1`, `numpy==1.26.4`, `librosa`, `einops`, `mido`); a song takes
+  about three minutes on a free graphics card.
 - **Your own drum samples.** `Beatmaker.exe --kits "D:\Drum kits"` (remembered after the first time)
   makes each remake try every kick, snare, hat and clap in that folder (unpack the zips first;
   files over about a megabyte are taken for loops) on the song's own hits, compare each with the

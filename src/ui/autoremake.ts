@@ -15,7 +15,8 @@ import { drumNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
-import { Attacks, compareRemake, describeComparison } from '../audio/compare';
+import { Attacks, compareRemake, describeComparison, type Role } from '../audio/compare';
+import { struckParts } from './ymt3parts';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
 import { followLevels } from '../audio/follow';
@@ -224,7 +225,23 @@ export async function autoRemake(
       visible: true,
       notes: p.notes.map((n) => ({ ...n, id: newNoteId() })),
     }));
-  const roleOf = new Map(song.tracks.map((t) => [t.id, parts.find((p) => p.name === t.name)!.role]));
+  const roleOf = new Map<string, Role>(song.tracks.map((t) => [t.id, parts.find((p) => p.name === t.name)!.role]));
+  // Struck or plucked parts YourMT3+ hears in the other stem (a piano the pad line swallows): a track each.
+  if (stems) {
+    try {
+      const found = await struckParts(song, stems.other, off);
+      report.push(...found.report);
+      for (const f of found.parts) {
+        const t: Track = { id: newTrackId(), name: f.name, kind: 'synth', instrument: f.instrument, color: colors[song.tracks.length % colors.length], volume: 0.7, pan: 0, reverb: 0.2, mute: false, solo: false, visible: true, notes: f.notes };
+        song.tracks.push(t);
+        roleOf.set(t.id, 'extra');
+      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('YourMT3+ failed', e);
+      report.push(`YourMT3+: not used (${(e as Error).message})`);
+    }
+  }
   // The tidied repeats become linked loops, one per group of alike passes.
   for (const t of song.tracks) {
     const l = loopsOf.get(t.name);
@@ -263,12 +280,12 @@ export async function autoRemake(
 
   // 5. Instruments
   const find = phase('find', 'Finding instruments…');
-  const pitched = store.song.tracks.filter((t) => roleOf.has(t.id));
+  const pitched = store.song.tracks.filter((t) => roleOf.has(t.id) && roleOf.get(t.id) !== 'extra');
   /** Each track's best few sounds (with the volume each needs), for settling the close calls together. */
   const shortlist = new Map<string, { id: string; gain: number; base: number }[]>();
   for (const [i, t] of pitched.entries()) {
     aborted(signal);
-    const role = roleOf.get(t.id)!;
+    const role = roleOf.get(t.id)! as Exclude<Role, 'extra'>;
     const stem = stems ? (role === 'drums' ? stems.drums : role === 'bass' ? stems.bass : stems.other) : undefined;
     const span = busiestStretch(store.song, t);
     const all = finderCandidates(t, false);
@@ -403,7 +420,7 @@ export async function autoRemake(
     try {
       const live = store.song.tracks.filter((t) => !t.mute);
       const of = (...roles: string[]) => live.filter((t) => roles.includes(roleOf.get(t.id) ?? ''));
-      const lead = of('chords', 'melody');
+      const lead = of('chords', 'melody', 'extra');
       const bits: TonePart[] = [
         { name: 'drums', tracks: of('drums'), stem: stems.drums, lo: 60, hi: 12000, guide: drumTrack ?? live[0] },
         { name: 'bass', tracks: of('bass'), stem: stems.bass, lo: 30, hi: 2000, guide: of('bass')[0] },
@@ -432,7 +449,7 @@ export async function autoRemake(
       const of = (...roles: string[]) => live.filter((t) => roles.includes(roleOf.get(t.id) ?? ''));
       const parts = [
         { name: 'drums', tracks: of('drums'), stem: stems.drums },
-        { name: 'chords and melody', tracks: of('chords', 'melody'), stem: stems.other },
+        { name: 'chords and melody', tracks: of('chords', 'melody', 'extra'), stem: stems.other },
         { name: 'bass', tracks: of('bass'), stem: stems.bass },
       ].filter((p) => p.tracks.length);
       const moved = await followLevels(store.song, parts, off, (t, lane) => store.update(() => (t.automation = { ...t.automation, volume: lane })));

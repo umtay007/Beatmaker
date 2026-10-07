@@ -14,7 +14,7 @@ import { BAR, cloneSong, type Song } from '../core/types';
 import { clampFloor, F_LO, mono, N_BANDS, PER_OCT, RATE, resampled, spectrogram, type Spec } from './finder';
 import { renderSong } from './render';
 
-export type Role = 'drums' | 'bass' | 'chords' | 'melody';
+export type Role = 'drums' | 'bass' | 'chords' | 'melody' | 'extra';
 type Part = 'drums' | 'bass' | 'other';
 
 export interface PartScore {
@@ -39,7 +39,7 @@ export interface Comparison {
 const PARTS: { part: Part; name: string; roles: Role[]; lo: number; hi: number; weight: number; pitched: boolean }[] = [
   { part: 'drums', name: 'Drums', roles: ['drums'], lo: 40, hi: 10000, weight: 0.3, pitched: false },
   { part: 'bass', name: 'Bass', roles: ['bass'], lo: 40, hi: 500, weight: 0.3, pitched: true },
-  { part: 'other', name: 'Chords + melody', roles: ['chords', 'melody'], lo: 150, hi: 6000, weight: 0.4, pitched: true },
+  { part: 'other', name: 'Chords + melody', roles: ['chords', 'melody', 'extra'], lo: 150, hi: 6000, weight: 0.4, pitched: true },
 ];
 /** How much each measure counts, per part. */
 const WEIGHTS: Record<Part, { hits: number; pitch: number; loudness: number; tone: number }> = {
@@ -400,6 +400,11 @@ export class Attacks {
     // Rises are measured per stretch and averaged: the same as measuring the notes of all of them.
     a.target = profs[0].map((_, i) => profs.reduce((s, p) => s + p[i], 0) / profs.length);
     return a;
+  }
+
+  /** How far (dB) the original rises, on average, at the start of these notes: a struck part has a lot. */
+  get rise(): number {
+    return this.target ? this.target[-REL_LO] : 0;
   }
 
   /** Same, for audio that is already the whole part from song time 0 (a VST render). */
