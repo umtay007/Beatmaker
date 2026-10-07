@@ -666,6 +666,8 @@ export async function autoRemake(
     for (const part of own) {
       const replaced = store.song.tracks.filter((t) => !t.mute && (part === 'other' ? ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? '') : roleOf.get(t.id) === part));
       const track = await vocalTrack(stems[part], store.song, colors[store.song.tracks.length % colors.length], { name: `${labels[part]} (original)`, withOriginal: true });
+      // The notes stay on the muted remake tracks for the video and the MIDI; this audio is only heard.
+      track.visible = false;
       store.update((song) => {
         for (const t of replaced) t.mute = true;
         song.tracks.push(track);
