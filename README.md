@@ -172,7 +172,7 @@ anyway**.
   enters for the hook or drums that thin out in a break do the same in the remake, and a drum kit
   built from your own samples has its voices balanced against the original's drum part. Last, the
   finished mix (reverb and master chain on) is checked in the bars where only the chords and melody
-  play, an intro or a breakdown, and their volume is set so they are as loud as the original's.
+  play, an intro or a breakdown, and their EQ and volume are set so they sound and are as loud as the original's.
 - It separates the parts, tries a shortlist of mostly recorded instruments for each part (trying
   every one lets synth pads beat the strings they sound like), and settles close calls by
   comparing over three parts of the song. The chords and melody share one stem, so their sounds

@@ -24,7 +24,7 @@ export interface TonePart {
 const MAX_EQ = 9;
 
 /** Average of several third-octave spectra (dB) in the power domain. */
-function average(spectra: number[][]): number[] {
+export function average(spectra: number[][]): number[] {
   return spectra[0].map((_, b) => 10 * Math.log10(spectra.reduce((s, x) => s + Math.pow(10, x[b] / 10), 0) / spectra.length + 1e-12));
 }
 

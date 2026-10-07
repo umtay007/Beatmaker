@@ -19,7 +19,7 @@ import { Attacks, compareRemake, describeComparison, type Role } from '../audio/
 import { struckParts } from './ymt3parts';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
-import { padOffset } from '../audio/balance';
+import { balancePads } from '../audio/balance';
 import { followLevels } from '../audio/follow';
 import { fitPartsTone, type TonePart } from '../audio/tonepass';
 import { earsAvailable, listen as hearAll, zscores } from './ears';
@@ -531,25 +531,13 @@ export async function autoRemake(
     if (changes.length) report.push(`Master: ${changes.join(' · ')}`);
   }
   // The chords and melody against the drums and bass in the finished mix (reverb and master chain on):
-  // where only the chords and melody play, they should be as loud as the original's.
+  // where only the chords and melody play, they should sound and be as loud as the original's.
   if (stems) {
     step('Balancing the chords and melody…', 0.985);
     try {
       const pads = store.song.tracks.filter((t) => !t.mute && ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? ''));
-      let total = 0;
-      for (let pass = 0; pass < 2 && pads.length; pass++) {
-        const d = await padOffset(store.song, stems, off);
-        if (d === null || Math.abs(d) < 1) break;
-        const f = Math.pow(10, Math.max(-9, Math.min(6, -d)) / 20);
-        const scale = (v: number) => Math.max(0.02, Math.min(1.5, v * f));
-        store.update(() =>
-          pads.forEach((t) => {
-            t.volume = scale(t.volume);
-            if (t.automation?.volume) t.automation.volume = t.automation.volume.map((p) => ({ ...p, value: scale(p.value) }));
-          }));
-        total += 20 * Math.log10(f);
-      }
-      if (Math.abs(total) >= 1) report.push(`Balance: the chords and melody were ${total < 0 ? 'louder' : 'quieter'} than the original's where they play alone; ${total < 0 ? 'turned down' : 'turned up'} ${Math.abs(total).toFixed(1)} dB`);
+      const fix = await balancePads(store.song, stems, off, pads, (change) => store.update(change));
+      if (fix) report.push(`Balance: where only the chords and melody play, their tone is now ${fix.tone[1].toFixed(1)} dB from the original's (was ${fix.tone[0].toFixed(1)}) and their volume ${fix.level < 0 ? 'down' : 'up'} ${Math.abs(fix.level).toFixed(1)} dB`);
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
       console.warn('Balancing failed', e);
