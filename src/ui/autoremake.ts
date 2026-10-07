@@ -443,14 +443,27 @@ export async function autoRemake(
   if (stems && lead && pads) {
     const refine = (f: number) => step('Matching the chords and melody sounds to the original…', 0.9 + 0.02 * f);
     try {
-      const spans = busyStretches(store.song, pads, 8, 3);
+      // A spread of the song, a stretch from each kind of section (up to 8 bars): the busiest stretches alone
+      // are hooks and verses, where the stem is full of drums, bass and voice and the pad hardly shows.
+      const tlr = new Timeline(store.song);
+      const secs = store.song.sections ?? [];
+      const seen = new Set<string>();
+      const spread = secs.flatMap((s, i) => {
+        if (seen.has(s.name)) return [];
+        seen.add(s.name);
+        const end = Math.min(s.tick + 8 * BAR, secs[i + 1]?.tick ?? store.song.bars * BAR);
+        return end - s.tick >= 4 * BAR ? [{ from: tlr.tickToSec(s.tick), to: tlr.tickToSec(end) }] : [];
+      });
+      const spans = spread.length >= 2 ? spread.slice(0, 4) : busyStretches(store.song, pads, 8, 3);
       const members = store.song.tracks.filter((t) => ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? '') && !t.mute);
-      const partWith = async (t: Track, id: string): Promise<number> => {
+      /** The part's score with one track's settings swapped (EQ left flat: the tone fit comes later). */
+      const partWithSwap = async (t: Track, change: Partial<Track>): Promise<number> => {
         const x = cloneSong(store.song);
         x.tracks = x.tracks.filter((y) => members.some((m) => m.id === y.id));
-        for (const y of x.tracks) Object.assign(y, { solo: false, eqLow: 0, eqMid: 0, eqHigh: 0, ...(y.id === t.id ? { instrument: id } : {}) });
+        for (const y of x.tracks) Object.assign(y, { solo: false, eqLow: 0, eqMid: 0, eqHigh: 0, ...(y.id === t.id ? change : {}) });
         return partScore(x, stems.other, off, 'other', spans);
       };
+      const partWith = (t: Track, id: string) => partWithSwap(t, { instrument: id });
       let best = await partWith(pads, pads.instrument);
       const start = best;
       const moves: string[] = [];
@@ -484,7 +497,41 @@ export async function autoRemake(
         }
         if (!changed) break;
       }
-      if (moves.length) report.push(`Sounds matched to the original's chords and melody as a whole (${Math.round(start)} → ${Math.round(best)} of 100 on the part): ${moves.join(', ')}`);
+      // Levels. Each track was scaled to match the whole stem on its own, so together they are too loud and
+      // the lead drowns the pad (a melody at its own level cost Walk's part 20 points): every track's volume
+      // moves up or down while the whole part scores better, two rounds.
+      const afterSounds = best;
+      let levelled = best;
+      for (let round = 0; round < 2; round++) {
+        let moved = false;
+        for (const t of members) {
+          for (const step of [0.6, 1.6]) {
+            let improved = false;
+            for (let k = 0; k < 3; k++) {
+              aborted(signal);
+              const volume = Math.max(0.02, Math.min(1.5, t.volume * step));
+              if (volume === t.volume) break;
+              let score: number;
+              try {
+                score = await partWithSwap(t, { volume });
+              } catch {
+                break;
+              }
+              if (score <= levelled + 0.3) break;
+              levelled = score;
+              improved = moved = true;
+              store.update(() => (t.volume = Math.round(volume * 1000) / 1000));
+            }
+            if (improved) break; // (the other direction would only undo it)
+          }
+        }
+        if (!moved) break;
+      }
+      if (levelled > best + 0.3) {
+        report.push(`Levels of the chords and melody tracks against each other: ${Math.round(best)} → ${Math.round(levelled)} of 100 on the part`);
+        best = levelled;
+      }
+      if (moves.length) report.push(`Sounds matched to the original's chords and melody as a whole (${Math.round(start)} → ${Math.round(afterSounds)} of 100 on the part): ${moves.join(', ')}`);
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
       console.warn('Refining sounds failed', e);
