@@ -179,7 +179,8 @@ anyway**.
   are settled together by how the pair matches it: by how their notes start, by ear, and last by
   the score of the whole part against its stem (a sustained choir keeps a pad's harmonics where a
   plucked piano does not). That stem is transcribed as one dense, polyphonic part: every note is
-  kept, octave doublings included. A VST sound has to hold up on that score too before it replaces
+  kept, octave doublings included, and the lead's notes play on the chords' track with the same
+  sound (one sound for the whole blended stem matches it best). A VST sound has to hold up on that score too before it replaces
   a built-in one.
 - The report ends by **comparing the remake with the original**, part by part: the separated
   drums, bass and melodic parts against the remake's matching tracks, scored 0-100 on whether the

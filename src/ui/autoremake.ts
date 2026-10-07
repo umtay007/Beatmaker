@@ -186,8 +186,16 @@ export async function autoRemake(
     melody = sp.melody.filter((n) => n.pitch >= 72);
   }
   // Chords and melody are held notes the transcriber chops into restarts: rejoin them.
-  chords = holdNotes(chords, 4 * STEP, 4 * STEP);
-  melody = holdNotes(melody, 4 * STEP, 4 * STEP);
+  if (stems) {
+    // The separated melodic stem is one blended texture (a pad with a lead on top), and one sound for
+    // all of it matches it best: a choir playing the lead too scored 59 of 100 on Walk, against 53 with a
+    // separate lead sound. So the lead's notes join the chords' track.
+    chords = holdNotes([...chords, ...melody], 4 * STEP, 4 * STEP);
+    melody = [];
+  } else {
+    chords = holdNotes(chords, 4 * STEP, 4 * STEP);
+    melody = holdNotes(melody, 4 * STEP, 4 * STEP);
+  }
   aborted(signal);
 
   // 4. Tidy and sections
@@ -440,7 +448,7 @@ export async function autoRemake(
   // that score (a sustained organ or choir keeps the pad's harmonics where a plucked piano does not). So
   // each in turn takes the sound with which the whole part matches the stem best, from the sounds already
   // in the running, in two rounds.
-  if (stems && lead && pads) {
+  if (stems && pads) {
     const refine = (f: number) => step('Matching the chords and melody sounds to the original…', 0.9 + 0.02 * f);
     try {
       // A spread of the song, a stretch from each kind of section (up to 8 bars): the busiest stretches alone
@@ -469,7 +477,7 @@ export async function autoRemake(
       const moves: string[] = [];
       for (let round = 0; round < 2; round++) {
         let changed = false;
-        for (const [k, t] of [pads, lead].entries()) {
+        for (const [k, t] of [pads, lead].filter((x): x is Track => !!x).entries()) {
           const role = roleOf.get(t.id)! as 'chords' | 'melody';
           const known = new Map((shortlist.get(t.id) ?? []).map((o) => [o.id, o]));
           const ids = [...new Set([...known.keys(), ...SHORTLIST[role].slice(0, 12)])].filter((id) => id !== t.instrument);
