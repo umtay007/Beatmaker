@@ -176,7 +176,11 @@ anyway**.
 - It separates the parts, tries a shortlist of mostly recorded instruments for each part (trying
   every one lets synth pads beat the strings they sound like), and settles close calls by
   comparing over three parts of the song. The chords and melody share one stem, so their sounds
-  are settled together by how the pair matches it.
+  are settled together by how the pair matches it: by how their notes start, by ear, and last by
+  the score of the whole part against its stem (a sustained choir keeps a pad's harmonics where a
+  plucked piano does not). That stem is transcribed as one dense, polyphonic part: every note is
+  kept, octave doublings included. A VST sound has to hold up on that score too before it replaces
+  a built-in one.
 - The report ends by **comparing the remake with the original**, part by part: the separated
   drums, bass and melodic parts against the remake's matching tracks, scored 0-100 on whether the
   hits land together, the pitches agree, the loudness rises and falls alike and the tone is alike,
