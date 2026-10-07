@@ -21,10 +21,11 @@ import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
 import { balancePads } from '../audio/balance';
 import { followLevels } from '../audio/follow';
+import { desktop } from './desktop';
 import { fitPartsTone, type TonePart } from '../audio/tonepass';
 import { earsAvailable, listen as hearAll, zscores } from './ears';
 import { mono, RATE, resampled } from '../audio/finder';
-import { renderSong } from '../audio/render';
+import { encodeWav, renderSong } from '../audio/render';
 import { instrumentFor } from '../audio/instruments';
 import type { AudioEngine } from '../audio/engine';
 import type { Store } from '../core/store';
@@ -125,10 +126,32 @@ export async function autoRemake(
   let stems: Record<StemName, AudioBuffer> | null = null;
   if (weights.separate) {
     const sep = phase('separate', 'Separating drums, bass, melody and vocals…');
+    // The voice comes out first where voice removal is set up (desktop, --sep): Demucs on the whole song
+    // leaves the singer's consonants in the drums and breaths in the chords, and a split of what is left
+    // without a voice has none to leak. The vocals are then the stronger model's own.
+    let from = buf;
+    let voice: AudioBuffer | null = null;
+    const app = desktop();
+    if (app?.devocalReady && (await app.devocalReady())) {
+      sep(0, 'Taking the voice out first…');
+      try {
+        const r = await app.devocalRun(new Uint8Array(await encodeWav(buf).arrayBuffer()));
+        if (r.instrumental && r.vocals) {
+          const ctx = new OfflineAudioContext(2, 1, 44100);
+          const decode = (b: Uint8Array) => ctx.decodeAudioData(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+          [from, voice] = await Promise.all([decode(r.instrumental), decode(r.vocals)]);
+          report.push('Took the voice out first (BS-Roformer), then split what was left into drums, bass and melody: no singing left to leak into them');
+        } else report.push(`Taking the voice out first: not used (${r.error ?? 'nothing came back'})`);
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e;
+        report.push(`Taking the voice out first: not used (${(e as Error).message})`);
+      }
+    }
     // Twice before giving up: everything after is much better with the parts apart.
     for (let attempt = 1; attempt <= 2 && !stems; attempt++) {
       try {
-        stems = await c.separator!(buf, (f, msg) => sep(f, msg), signal);
+        stems = await c.separator!(from, (f, msg) => sep(f, msg), signal);
+        if (voice) stems = { ...stems, vocals: voice };
         engine.stems = stems;
         report.push('Separated the original into drums, bass, melody and vocals');
       } catch (e) {

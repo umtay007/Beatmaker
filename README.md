@@ -217,6 +217,13 @@ anyway**.
   those samples. The report says how the attacks of its notes compare with the original's, and a
   sound whose attacks run against the original's is left out. Needs Python with `pedalboard` for picking (the app installs it with pip
   if it's missing; set `BEATMAKER_PYTHON` to use a particular Python).
+- **Taking the voice out first** (optional, `--sep <folder>`, remembered). Splitting a whole song with
+  Demucs leaves the singer's consonants in the drums and breaths in the chords. With this set, a
+  stronger model (BS-Roformer, through the `audio-separator` Python package in `<folder>`'s own `venv`,
+  model files in `<folder>models`) takes the voice out first, and the instrumental is what Demucs then
+  splits into drums, bass and melody; the vocals stem is the stronger model's own. It adds about two
+  minutes a song and is cached per song in `%APPDATA%Beatmakerdevocal`. Without it the song is split
+  as before.
 - **A second transcription, YourMT3+** (optional, `--ymt3 <folder>`, remembered). Basic Pitch folds
   a struck piano into the held pad line it hears under it; YourMT3+ (a multi-instrument model that
   labels each note's instrument) finds it. Its notes are grouped by instrument family and a group

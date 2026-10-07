@@ -34,6 +34,10 @@ export interface DesktopApi {
   earsReady(): Promise<boolean>;
   /** Which candidates sound most like the reference: per candidate, its mean similarity under two models (general, music). */
   earsScore(refs: Uint8Array[], cands: Uint8Array[][]): Promise<{ general?: number[]; music?: number[]; error?: string }>;
+  /** Whether voice removal is set up (--sep <folder>). */
+  devocalReady(): Promise<boolean>;
+  /** Take the voice out of a whole song first (WAV bytes): the instrumental and the vocals, as WAV bytes. */
+  devocalRun(wav: Uint8Array): Promise<{ instrumental?: Uint8Array; vocals?: Uint8Array; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

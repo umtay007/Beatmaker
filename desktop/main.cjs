@@ -73,6 +73,7 @@ function parseArgs(argv) {
   let noWindow = false;
   let kits = null;
   let ymt3 = null;
+  let sep = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
@@ -92,11 +93,12 @@ function parseArgs(argv) {
     else if (a === '--no-window') noWindow = true;
     else if (a === '--kits') kits = argv[++i] ?? null;
     else if (a === '--ymt3') ymt3 = argv[++i] ?? null;
+    else if (a === '--sep') sep = argv[++i] ?? null;
     else if (a === '--out') out = argv[++i] ?? null;
     else if (a.startsWith('--out=')) out = a.slice(6);
     else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
   }
-  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits, ymt3 };
+  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits, ymt3, sep };
 }
 
 // The first entries are the program (and the app folder when run as `electron .`).
@@ -353,6 +355,46 @@ ipcMain.handle('ymt3-run', async (_e, wav, seconds) => {
     return { error: String(e && e.message) };
   } finally {
     void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+// Taking the voice out first (`--sep <folder>`, remembered): BS-Roformer (vst/devocal.py) in the folder's own
+// Python. The result is cached per song (userData/devocal), as it takes a couple of minutes.
+
+const sepFile = () => path.join(app.getPath('userData'), 'sep.txt');
+function sepRoot() {
+  try {
+    const root = fs.readFileSync(sepFile(), 'utf8').trim();
+    return fs.existsSync(path.join(root, 'venv', 'Scripts', 'python.exe')) && fs.existsSync(path.join(root, 'models')) ? root : null;
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('devocal-ready', () => !!sepRoot());
+/** wav bytes (the whole song) → { instrumental, vocals } as WAV bytes, or { error }. */
+ipcMain.handle('devocal-run', async (_e, wav) => {
+  const root = sepRoot();
+  if (!root) return { error: 'Voice removal is not set up (start Beatmaker once with --sep <folder>)' };
+  try {
+    const bytes = Buffer.from(wav);
+    const dir = path.join(app.getPath('userData'), 'devocal', crypto.createHash('sha1').update(bytes).digest('hex').slice(0, 16));
+    const inst = path.join(dir, 'instrumental.wav');
+    const voc = path.join(dir, 'vocals.wav');
+    if (!(fs.existsSync(inst) && fs.existsSync(voc))) {
+      await fsp.mkdir(dir, { recursive: true });
+      const input = path.join(dir, 'in.wav');
+      await fsp.writeFile(input, bytes);
+      const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+      const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'devocal.py'), root, input, dir], {
+        spawn: { env },
+        onLine: (l) => /^(RESULT|Traceback|\w*Error)/.test(l) && log('devocal', l.slice(0, 200)),
+      });
+      void fsp.rm(input, { force: true }).catch(() => {});
+      if (r.code !== 0 || !fs.existsSync(inst) || !fs.existsSync(voc)) return { error: `Voice removal failed: ${r.out.trim().split(/\r?\n/).slice(-2).join(' ').slice(0, 240)}` };
+    }
+    return { instrumental: await fsp.readFile(inst), vocals: await fsp.readFile(voc) };
+  } catch (e) {
+    return { error: String(e && e.message) };
   }
 });
 
@@ -628,6 +670,7 @@ if (!app.requestSingleInstanceLock()) {
     log('start', app.getVersion(), process.platform, process.arch, JSON.stringify(cli));
     if (cli.kits) fs.writeFileSync(kitsFile(), path.resolve(cli.kits));
     if (cli.ymt3) fs.writeFileSync(ymt3File(), path.resolve(cli.ymt3));
+    if (cli.sep) fs.writeFileSync(sepFile(), path.resolve(cli.sep));
     if (cli.pick) {
       void pickSound(cli.pick).finally(() => app.quit());
       return;
