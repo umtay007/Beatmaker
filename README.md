@@ -196,12 +196,19 @@ anyway**.
   a larger speech model for the lyrics (Whisper small rather than base).
 - From a command prompt: `Beatmaker.exe song.mp3 [more songs…] [--out <folder>]
   [--all-instruments] [--lyrics] [--vocals] [--kits <folder>] [--no-vst] [--no-video] [--no-tidy]
-  [--stems] [--hidden]
+  [--stems] [--hidden] [--original-stems[=drums,bass,other]]
   [--quick] [--quit]`
   (`--stems` also saves the separated parts as WAVs, `--quick` stops after the analysis and the
   comparison, with nothing exported, `--hidden` shows no window while it works, `--quit`
   closes it when done).
 - The video is recorded at a steady 30 frames a second even with the window minimized or covered.
+- **`--original-stems[=drums,bass,other]`: not a remake.** Plays the chosen parts (all three when no list
+  is given) from the original recording's own separated stems instead of synthesizing them, with the
+  master chain left flat. Such a part scores about 100 in the comparison because it is compared with
+  the stem it is made of, so the number says nothing about remake accuracy; the report says so. Off by
+  default: a normal run is a real remake (Walk scores about 71 of 100, and the same song compared
+  with itself, one pass of its loop against another, scores 90-98, which is why a remake with other
+  sounds cannot reach 90).
 - **Your own VST instruments.** Pick a sound once for the melody:
   `Beatmaker.exe --pick-sound melody --plugin "C:\path\Analog Lab V.vst3"`. The plugin's own window
   opens: choose a sound and close it, and the sound is played at every pitch and saved as samples in

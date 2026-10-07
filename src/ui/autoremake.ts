@@ -31,7 +31,7 @@ import type { Store } from '../core/store';
 import { tidyRepeats } from '../core/tidy';
 import { makeLoop } from '../core/loops';
 import { Timeline } from '../core/timing';
-import { BAR, cloneSong, MAX_BARS, newNoteId, newTrackId, STEP, type Note, type Song, type Track } from '../core/types';
+import { BAR, cloneSong, DEFAULT_MASTER, MAX_BARS, newNoteId, newTrackId, STEP, type Note, type Song, type Track } from '../core/types';
 import type { Actions } from './actions';
 import { vocalTrack } from './vocaltrack';
 import { transcribeLyrics } from '../audio/lyricsasr';
@@ -51,6 +51,8 @@ export interface RemakeOptions {
   tidy: boolean;
   /** Write out the lyrics from the vocals, timed (needs the parts separated). */
   lyrics?: boolean;
+  /** Not a remake: these parts are the original recording's own separated stems (desktop `--original-stems`). */
+  originalStems?: ('drums' | 'bass' | 'other')[];
 }
 
 export interface RemakeContext {
@@ -653,6 +655,26 @@ export async function autoRemake(
       if ((e as Error).name === 'AbortError') throw e;
       console.warn('Balancing failed', e);
     }
+  }
+  // Opt-in, and not a remake: the chosen parts are played from the original recording's own separated
+  // stems. Against the stem it is made of, such a part scores about 100, which says nothing about how
+  // good a remake is; the report says so, and the default stays a real remake.
+  const own = opts.originalStems ?? [];
+  if (stems && own.length) {
+    step('Putting in the original’s own parts…', 0.988);
+    const labels = { drums: 'Drums', bass: 'Bass', other: 'Chords and melody' } as const;
+    for (const part of own) {
+      const replaced = store.song.tracks.filter((t) => !t.mute && (part === 'other' ? ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? '') : roleOf.get(t.id) === part));
+      const track = await vocalTrack(stems[part], store.song, colors[store.song.tracks.length % colors.length], { name: `${labels[part]} (original)`, withOriginal: true });
+      store.update((song) => {
+        for (const t of replaced) t.mute = true;
+        song.tracks.push(track);
+      });
+      roleOf.set(track.id, part === 'other' ? 'chords' : part);
+    }
+    // The master chain was matched to the synthesized mix; the original's parts need none of it.
+    store.update((song) => (song.master = { ...DEFAULT_MASTER, eq: [...DEFAULT_MASTER.eq] }));
+    report.push(`ORIGINAL STEMS (--original-stems): the ${own.map((p) => labels[p].toLowerCase()).join(', ')} below are the original recording's separated parts, not a remake, so their match score compares them with themselves and says nothing about remake accuracy`);
   }
   // 7. How close is it? Each part against the original's matching stem.
   if (stems) {

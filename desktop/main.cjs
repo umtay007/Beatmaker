@@ -65,7 +65,7 @@ function log(...parts) {
 function parseArgs(argv) {
   const songs = [];
   // Instrumental by default: no lyrics, no vocals.
-  const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true, hidden: false, vst: true };
+  const options = { thorough: false, lyrics: false, vocals: false, video: true, stems: false, quick: false, tidy: true, hidden: false, vst: true, originalStems: [] };
   let out = null;
   let quit = false;
   let pick = null;
@@ -79,6 +79,8 @@ function parseArgs(argv) {
     else if (a === '--lyrics') options.lyrics = true;
     else if (a === '--vocals') options.vocals = true;
     else if (a === '--no-tidy') options.tidy = false;
+    else if (a === '--original-stems') options.originalStems = ['drums', 'bass', 'other']; // not a remake: plays the original's separated parts
+    else if (a.startsWith('--original-stems=')) options.originalStems = a.slice(17).split(',').filter((x) => ['drums', 'bass', 'other'].includes(x));
     else if (a === '--hidden') options.hidden = true; // no window shown: for jobs left running in the background
     else if (a === '--no-vst') options.vst = false;
     else if (a === '--quick') options.quick = true; // analysis and report only, no exports

@@ -16,7 +16,7 @@ const separatorCached = separationModelCached;
 export interface AutoRun {
   file: File;
   outDir: string | null;
-  options: { thorough: boolean; lyrics: boolean; vocals: boolean; quick?: boolean; tidy?: boolean; video: boolean; stems: boolean };
+  options: { thorough: boolean; lyrics: boolean; vocals: boolean; quick?: boolean; tidy?: boolean; video: boolean; stems: boolean; originalStems?: ('drums' | 'bass' | 'other')[] };
   onDone(result: { ok: boolean; files: string[]; error?: string }): void;
 }
 
@@ -34,6 +34,7 @@ export function showRemake(store: Store, engine: AudioEngine, actions: Actions, 
     exportAll: !auto?.options.quick && (!!auto || !!app),
     video: auto?.options.video ?? true,
     stems: auto?.options.stems ?? false,
+    originalStems: auto?.options.originalStems ?? [],
   };
   const fileLine = h('p', { class: 'remake-file' });
   const pick = h('input', { type: 'file', accept: 'audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac', hidden: true }) as HTMLInputElement;
