@@ -25,17 +25,23 @@ export interface PartOptions {
   lag?: number;
   /** Grid for chord starts (chords rarely change on off-16ths; pads are heard late). */
   chordGrid?: number;
+  /**
+   * The notes are one dense, polyphonic stem (a pad loop with a lead on top) rather than a few lines:
+   * keep every note. Octave doublings are real there, a melody note keeps its length, and a hit's
+   * chord is not cut to five notes. (Dropping the doublings alone cost Walk's pitch match 21 points.)
+   */
+  dense?: boolean;
 }
 
 /** Mono line: sort by start, keep one note per start (by `pick`), and cut each off at the next. */
-function monophonic(notes: Note[], pick: (a: Note, b: Note) => Note): Note[] {
+function monophonic(notes: Note[], pick: (a: Note, b: Note) => Note, cut = true): Note[] {
   const byStart = new Map<number, Note>();
   for (const n of notes) {
     const cur = byStart.get(n.start);
     byStart.set(n.start, cur ? pick(cur, n) : n);
   }
   const line = [...byStart.values()].sort((a, b) => a.start - b.start);
-  for (let i = 0; i + 1 < line.length; i++) line[i].dur = Math.max(1, Math.min(line[i].dur, line[i + 1].start - line[i].start));
+  if (cut) for (let i = 0; i + 1 < line.length; i++) line[i].dur = Math.max(1, Math.min(line[i].dur, line[i + 1].start - line[i].start));
   return line;
 }
 
@@ -66,7 +72,7 @@ export function splitParts(raw: PitchNote[], tl: Timeline, o: PartOptions): Part
   if (o.kicks) all = all.filter((n) => !(n.pitch < 40 && n.dur <= 2 * grid && o.kicks!.has(n.start)));
   // One note heard in two octaves at once (a sub's fundamental and its harmonic): keep the stronger.
   const drop = new Set<Note>();
-  for (const n of all) {
+  for (const n of o.dense ? [] : all) {
     for (const m of all) {
       if (m === n || drop.has(m) || drop.has(n)) continue;
       const d = m.pitch - n.pitch;
@@ -101,12 +107,12 @@ export function splitParts(raw: PitchNote[], tl: Timeline, o: PartOptions): Part
     if (others.some((m) => m.pitch > n.pitch + 2 && m.start < n.start && !struck.includes(m) && m.dur <= n.dur)) continue;
     melodySet.add(n);
   }
-  const melody = monophonic([...melodySet], (a, b) => (a.pitch >= b.pitch ? a : b));
+  const melody = monophonic([...melodySet], (a, b) => (a.pitch >= b.pitch ? a : b), !o.dense);
   const inMelody = new Set(melody);
   const byStart = new Map<number, Note[]>();
   for (const n of rest) if (!inMelody.has(n) && n.pitch >= 40) byStart.set(n.start, [...(byStart.get(n.start) ?? []), n]);
   const chords: Note[] = [];
-  for (const group of byStart.values()) chords.push(...group.sort((a, b) => b.vel - a.vel).slice(0, 5));
+  for (const group of byStart.values()) chords.push(...group.sort((a, b) => b.vel - a.vel).slice(0, o.dense ? 12 : 5));
   const cg = o.chordGrid ?? grid;
   if (cg !== grid) {
     // Snap chord starts to the coarser grid (keeping their ends), one note per key per step.

@@ -7,9 +7,9 @@
  */
 import { Timeline } from '../core/timing';
 import { BAR, type Song, type Track } from '../core/types';
-import { mono, RATE, resampled } from './finder';
+import { RATE, resampled } from './finder';
 import { renderSong } from './render';
-import { fitTone, ltas } from './tonefit';
+import { fitTone, ltas, TONE_BANDS } from './tonefit';
 import { average } from './tonepass';
 
 /** The original's drums or bass are absent from a bar this quiet (dB re full scale). */
@@ -31,7 +31,7 @@ const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
 export interface Balance {
   /** Spectral gap (dB rms, third-octave bands) between the pads' finished mix and the original, before and after the EQ. */
   tone: [number, number];
-  /** Volume change (dB) that made them as loud as the original's. */
+  /** Volume change (dB) that made them as loud as the original's (in the bands from 60 Hz to 9 kHz). */
   level: number;
 }
 
@@ -70,14 +70,17 @@ export async function balancePads(song: Song, stems: { drums: AudioBuffer; bass:
     }
   });
 
-  // Level: the median bar's difference, measured again after each change (the EQ moved it too).
+  // Level: the median band's difference (the bands the comparison looks at, not the broadband RMS that a
+  // stray sub-bass note can swamp), measured again after each change (the EQ moved it too).
+  const peak = Math.max(...target);
   let level = 0;
   for (let pass = 0; pass < 2; pass++) {
-    const mine = mono(await render(), 0, seconds);
-    const diffs = counted.map((i) => db(mine, at[i], Math.min(mine.length, at[i + 1])) - db(other, at[i], Math.min(other.length, at[i + 1]))).sort((x, y) => x - y);
-    const d = diffs[diffs.length >> 1];
+    const now = await render();
+    const mine = average(counted.map((i) => ltas(now, secs[i], secs[i + 1])));
+    const diffs = target.map((t, k) => t - mine[k]).filter((_, k) => TONE_BANDS[k] >= 60 && TONE_BANDS[k] <= TONE_HI && target[k] > peak - 45 && mine[k] > -150).sort((x, y) => x - y);
+    const d = diffs[diffs.length >> 1] ?? 0;
     if (Math.abs(d) < 1) break;
-    const g = clamp(-d, 9);
+    const g = clamp(d, 9);
     const f = Math.pow(10, g / 20);
     const scale = (v: number) => Math.max(0.02, Math.min(1.5, v * f));
     edit(() => {

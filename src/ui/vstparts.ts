@@ -7,7 +7,7 @@
  * A VST sound stays unless its notes start clearly less like the original's than the built-in
  * sound's do (the attack measure in audio/compare.ts): a plugin can't make a bad transcription good.
  */
-import { Attacks } from '../audio/compare';
+import { Attacks, partScore } from '../audio/compare';
 import type { Role } from '../audio/compare';
 import { busyStretches } from '../audio/finder';
 import { renderSong } from '../audio/render';
@@ -22,6 +22,8 @@ const ROLES: { role: 'melody' | 'chords'; sounds: string[]; label: string }[] = 
   { role: 'melody', sounds: ['melody'], label: 'melody' },
   { role: 'chords', sounds: ['chords', 'melody'], label: 'chords' },
 ];
+/** ...and it must not match the original's part worse overall (points of 100) than the built-in sound: how the notes start is one measure, but a piano's tone and harmonics can still be far from a pad's. */
+const SCORE_TOLERANCE = 2;
 /** A VST sound was picked on purpose, so it only loses to the built-in sound when its attacks are clearly less like the original's (Walk: 0.54 against 0.76 sounded further off). */
 const TOLERANCE = 0.1;
 
@@ -87,11 +89,19 @@ export async function applyVstSounds(c: VstContext): Promise<string[]> {
       // The notes stay on the built-in track (muted) for the editor and the video; the audio is the plugin's.
       track.visible = false;
       c.store.update((s) => s.tracks.push(track));
+      const dropVst = () => c.store.update((s) => (s.tracks = s.tracks.filter((t) => t !== track)));
       // As loud as the built-in track was.
       const level = async (tracks: Track[]) => rms(await renderSong(solo(tracks), { from: 0, to: Math.min(60, duration - 2), tail: 0, dynamics: false, sampleRate: 22050 }));
       const want = await level([builtin]);
       const got = await level([track]);
       if (got > 0 && want > 0) c.store.update(() => (track.volume = Math.round(Math.max(0.02, Math.min(1.5, track.volume * (want / got))) * 1000) / 1000));
+      // Overall, against the original's part: the notes' starts are not the whole of it.
+      const [scoreBuiltin, scoreVst] = [await partScore(solo([builtin]), c.stems.other, c.offset, 'other', spans), await partScore(solo([track]), c.stems.other, c.offset, 'other', spans)];
+      if (scoreVst + SCORE_TOLERANCE < scoreBuiltin) {
+        dropVst();
+        report.push(`VST ${r.label}: ${name} matches the original's part ${Math.round(scoreVst)} of 100 against the built-in ${builtin.instrument} sound's ${Math.round(scoreBuiltin)}, so the built-in one stays`);
+        continue;
+      }
       c.store.update(() => (builtin.mute = true));
       c.roleOf.set(track.id, r.role);
       report.push(`VST ${r.label}: ${name}${att ? `, its notes start like the original's (${after.toFixed(2)}; the built-in ${builtin.instrument} sound: ${before.toFixed(2)})` : ''}`);

@@ -15,7 +15,7 @@ import { drumNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { detectSections } from '../audio/structure';
-import { Attacks, compareRemake, describeComparison, type Role } from '../audio/compare';
+import { Attacks, compareRemake, describeComparison, partScore, type Role } from '../audio/compare';
 import { struckParts } from './ymt3parts';
 import { applyVstSounds } from './vstparts';
 import { buildKitFromLibrary } from './mykit';
@@ -168,8 +168,9 @@ export async function autoRemake(
       bass = splitParts(b.struck, tl, { offset: off, kicks }).bass;
     }
     aborted(signal);
-    const o = await transcribePitches(stems.other, 0, stems.other.duration, {}, listen('Listening to the melody and chords…', 0.4, 1));
-    const sp = splitParts(o.notes, tl, { offset: off, kicks });
+    // (Frame threshold 0.2 rather than 0.3: a pad's quieter notes are real.)
+    const o = await transcribePitches(stems.other, 0, stems.other.duration, { onset: 0.6, frame: 0.2 }, listen('Listening to the melody and chords…', 0.4, 1));
+    const sp = splitParts(o.notes, tl, { offset: off, kicks, dense: true });
     // The melodic stem's lowest line is the bottom of its chords (the bass has its own stem).
     chords = [...sp.chords, ...sp.bass].sort((x, y) => x.start - y.start || x.pitch - y.pitch);
     melody = sp.melody;
@@ -432,6 +433,61 @@ export async function autoRemake(
         if ((e as Error).name === 'AbortError') throw e;
         report.push(`${t.name}: kept the sound found one by one (${(e as Error).message})`);
       }
+    }
+  }
+
+  // The chords and melody are scored together against the one stem they remake, and a sound is part of
+  // that score (a sustained organ or choir keeps the pad's harmonics where a plucked piano does not). So
+  // each in turn takes the sound with which the whole part matches the stem best, from the sounds already
+  // in the running, in two rounds.
+  if (stems && lead && pads) {
+    const refine = (f: number) => step('Matching the chords and melody sounds to the original…', 0.9 + 0.02 * f);
+    try {
+      const spans = busyStretches(store.song, pads, 8, 3);
+      const members = store.song.tracks.filter((t) => ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? '') && !t.mute);
+      const partWith = async (t: Track, id: string): Promise<number> => {
+        const x = cloneSong(store.song);
+        x.tracks = x.tracks.filter((y) => members.some((m) => m.id === y.id));
+        for (const y of x.tracks) Object.assign(y, { solo: false, eqLow: 0, eqMid: 0, eqHigh: 0, ...(y.id === t.id ? { instrument: id } : {}) });
+        return partScore(x, stems.other, off, 'other', spans);
+      };
+      let best = await partWith(pads, pads.instrument);
+      const start = best;
+      const moves: string[] = [];
+      for (let round = 0; round < 2; round++) {
+        let changed = false;
+        for (const [k, t] of [pads, lead].entries()) {
+          const role = roleOf.get(t.id)! as 'chords' | 'melody';
+          const known = new Map((shortlist.get(t.id) ?? []).map((o) => [o.id, o]));
+          const ids = [...new Set([...known.keys(), ...SHORTLIST[role].slice(0, 12)])].filter((id) => id !== t.instrument);
+          for (const [i, id] of ids.entries()) {
+            aborted(signal);
+            refine((round * 2 + k + i / ids.length) / 4);
+            let score: number;
+            try {
+              score = await partWith(t, id);
+            } catch {
+              continue; // a recording that can't be had right now
+            }
+            if (score > best + 0.5) {
+              best = score;
+              const o = known.get(id);
+              const was = t.instrument;
+              store.update(() => {
+                t.instrument = id;
+                if (o) t.volume = Math.round(Math.max(0.02, Math.min(1.5, o.base * o.gain)) * 1000) / 1000;
+              });
+              moves.push(`${t.name} ${instrumentFor(was).label} → ${instrumentFor(id).label}`);
+              changed = true;
+            }
+          }
+        }
+        if (!changed) break;
+      }
+      if (moves.length) report.push(`Sounds matched to the original's chords and melody as a whole (${Math.round(start)} → ${Math.round(best)} of 100 on the part): ${moves.join(', ')}`);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('Refining sounds failed', e);
     }
   }
 
