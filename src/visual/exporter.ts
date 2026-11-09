@@ -142,6 +142,10 @@ export function exportVideo(
       onProgress(Math.max(0, Math.min(1, (pos - from) / total)), pos - from, total);
     }, 200);
 
+    // The video encoder takes a second or more to get going and the frames drawn meanwhile are lost: every
+    // video froze for 1.3-2.3 s at the start, while the song was already playing. Let it warm up on the still
+    // first frame, in silence, before the song starts.
+    await new Promise((r) => setTimeout(r, 2000));
     if (!cancelled) await engine.play(from, until);
     await ended;
     // Let the final frames flush.
