@@ -398,6 +398,32 @@ ipcMain.handle('devocal-run', async (_e, wav) => {
   }
 });
 
+// Cleaning the bleed of a voice out of a separated stem (vst/declean.py, in the --sep folder's Python).
+/** stem and vocals as WAV bytes, the song's tempo and where it starts in the audio â†’ the cleaned stem as WAV bytes, or { error }. */
+ipcMain.handle('stem-clean', async (_e, stem, vocals, bpm, offset) => {
+  const root = sepRoot();
+  if (!root) return { error: 'Voice removal is not set up (start Beatmaker once with --sep <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-clean-'));
+  try {
+    const a = path.join(tmp, 'stem.wav');
+    const b = path.join(tmp, 'vocals.wav');
+    const out = path.join(tmp, 'out.wav');
+    await fsp.writeFile(a, Buffer.from(stem));
+    await fsp.writeFile(b, Buffer.from(vocals));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'declean.py'), a, b, out, String(bpm), String(offset)], {
+      spawn: { env },
+      onLine: (l) => /^(loops|RESULT|Traceback|\w*Error)/.test(l) && log('declean', l.slice(0, 200)),
+    });
+    if (r.code !== 0 || !fs.existsSync(out)) return { error: `Cleaning failed: ${r.out.trim().split(/\r?\n/).slice(-2).join(' ').slice(0, 240)}` };
+    return { wav: await fsp.readFile(out) };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
 // sounds most like a reference, by music-listening models.
 ipcMain.handle('ears-ready', () => {

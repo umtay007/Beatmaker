@@ -691,6 +691,24 @@ export async function autoRemake(
     step('Putting in the original’s own parts…', 0.988);
     const labels = { drums: 'Drums', bass: 'Bass', other: 'Chords and melody' } as const;
     for (const part of own) {
+      // The drums and chords still carry a slight buzz of the voice (and its reverb): where the vocals are
+      // set apart (voice removal is set up), clean it out of them, loop against loop and guided by the vocals.
+      if (part !== 'bass' && desktop()?.stemClean && (await desktop()!.devocalReady())) {
+        try {
+          const wavOf = async (b: AudioBuffer) => new Uint8Array(await encodeWav(b).arrayBuffer());
+          const r = await desktop()!.stemClean(await wavOf(stems[part]), await wavOf(stems.vocals), tempo.bpm, -off);
+          if (r.wav) {
+            const ctx = new OfflineAudioContext(2, 1, 44100);
+            const cleaned = await ctx.decodeAudioData(r.wav.buffer.slice(r.wav.byteOffset, r.wav.byteOffset + r.wav.byteLength) as ArrayBuffer);
+            stems[part] = cleaned;
+            engine.stems = stems;
+            report.push(`The ${part === 'other' ? 'chords and melody' : part} had the voice's bleed cleaned out (loop against loop, guided by the vocals)`);
+          } else report.push(`Cleaning the ${part}: not done (${r.error ?? 'nothing came back'})`);
+        } catch (e) {
+          if ((e as Error).name === 'AbortError') throw e;
+          report.push(`Cleaning the ${part}: not done (${(e as Error).message})`);
+        }
+      }
       const replaced = store.song.tracks.filter((t) => !t.mute && (part === 'other' ? ['chords', 'melody', 'extra'].includes(roleOf.get(t.id) ?? '') : roleOf.get(t.id) === part));
       const track = await vocalTrack(stems[part], store.song, colors[store.song.tracks.length % colors.length], { name: `${labels[part]} (original)`, withOriginal: true });
       // The notes stay on the muted remake tracks for the video and the MIDI; this audio is only heard.

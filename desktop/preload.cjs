@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   earsReady: () => ipcRenderer.invoke('ears-ready'),
   earsScore: (refs, cands) => ipcRenderer.invoke('ears-score', refs, cands),
   devocalReady: () => ipcRenderer.invoke('devocal-ready'),
+  stemClean: (stem, vocals, bpm, offset) => ipcRenderer.invoke('stem-clean', stem, vocals, bpm, offset),
   devocalRun: (wav) => ipcRenderer.invoke('devocal-run', wav),
   ymt3Ready: () => ipcRenderer.invoke('ymt3-ready'),
   ymt3Run: (wav, seconds) => ipcRenderer.invoke('ymt3-run', wav, seconds),

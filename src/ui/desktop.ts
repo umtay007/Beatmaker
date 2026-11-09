@@ -38,6 +38,8 @@ export interface DesktopApi {
   devocalReady(): Promise<boolean>;
   /** Take the voice out of a whole song first (WAV bytes): the instrumental and the vocals, as WAV bytes. */
   devocalRun(wav: Uint8Array): Promise<{ instrumental?: Uint8Array; vocals?: Uint8Array; error?: string }>;
+  /** Clean the bleed of a voice out of a stem (WAV bytes) with the vocals track as a guide; `offset` is where the song starts in the audio (seconds). */
+  stemClean(stem: Uint8Array, vocals: Uint8Array, bpm: number, offset: number): Promise<{ wav?: Uint8Array; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

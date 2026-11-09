@@ -209,6 +209,9 @@ anyway**.
   default: a normal run is a real remake (Walk scores about 71 of 100, and the same song compared
   with itself, one pass of its loop against another, scores 90-98, which is why a remake with other
   sounds cannot reach 90).
+  With voice removal set up (--sep), the drums and chords of such a run also have the voice's bleed cleaned
+  out: loop against loop (what a loop's repeats share), then bins where the vocals are loud turned down
+  (about 9 dB at most). On Walk that took a slight buzz in both stems down to nothing audible.
 - **Your own VST instruments.** Pick a sound once for the melody:
   `Beatmaker.exe --pick-sound melody --plugin "C:\path\Analog Lab V.vst3"`. The plugin's own window
   opens: choose a sound and close it, and the sound is played at every pitch and saved as samples in
