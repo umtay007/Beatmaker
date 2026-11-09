@@ -126,9 +126,10 @@ export async function autoRemake(
   let stems: Record<StemName, AudioBuffer> | null = null;
   if (weights.separate) {
     const sep = phase('separate', 'Separating drums, bass, melody and vocals…');
-    // The voice comes out first where voice removal is set up (desktop, --sep): Demucs on the whole song
-    // leaves the singer's consonants in the drums and breaths in the chords, and a split of what is left
-    // without a voice has none to leak. The vocals are then the stronger model's own.
+    // The voice comes out first where voice removal is set up (desktop, --sep), and only the chords come
+    // from the split of what is left: that stem repeats loop for loop more exactly (0.954 against 0.935 on
+    // Walk), while Demucs on the whole song is better for the drums (0.797 against 0.761) and the same for the
+    // bass. The vocals are then the stronger model's own.
     let from = buf;
     let voice: AudioBuffer | null = null;
     const app = desktop();
@@ -140,7 +141,7 @@ export async function autoRemake(
           const ctx = new OfflineAudioContext(2, 1, 44100);
           const decode = (b: Uint8Array) => ctx.decodeAudioData(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
           [from, voice] = await Promise.all([decode(r.instrumental), decode(r.vocals)]);
-          report.push('Took the voice out first (BS-Roformer), then split what was left into drums, bass and melody: no singing left to leak into them');
+          report.push('Took the voice out first (BS-Roformer) and took the chords and melody from the split of what was left; drums and bass from the split of the whole song');
         } else report.push(`Taking the voice out first: not used (${r.error ?? 'nothing came back'})`);
       } catch (e) {
         if ((e as Error).name === 'AbortError') throw e;
@@ -150,8 +151,11 @@ export async function autoRemake(
     // Twice before giving up: everything after is much better with the parts apart.
     for (let attempt = 1; attempt <= 2 && !stems; attempt++) {
       try {
-        stems = await c.separator!(from, (f, msg) => sep(f, msg), signal);
-        if (voice) stems = { ...stems, vocals: voice };
+        stems = await c.separator!(buf, (f, msg) => sep(f, msg), signal);
+        if (voice) {
+          const clean = from === buf ? stems : await c.separator!(from, (f, msg) => sep(f, msg), signal);
+          stems = { ...stems, other: clean.other, vocals: voice };
+        }
         engine.stems = stems;
         report.push('Separated the original into drums, bass, melody and vocals');
       } catch (e) {
