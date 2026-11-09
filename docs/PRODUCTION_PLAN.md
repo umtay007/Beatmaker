@@ -91,3 +91,21 @@ Automated: exported files checked for duration, alignment (cross-correlation aga
 1. A Spotify Client ID (create an app at developer.spotify.com/dashboard, redirect URI to be provided by this app) and whether the account is Premium.
 2. Power on and connect the Stem2 (by USB and Bluetooth) so it can be detected; say which of its modes you want tested first.
 3. Two or three representative vocal takes (raw WAV) and two song pairs for mashup testing, stored locally.
+
+## 7. How STEM.FM does it (public pages only, read 2026-11-09)
+
+Evidence from help.stem.fm (stem2-faqs, uploading-your-own-music, choosing-a-transition-mode, faq-import-music-library) and the App Store listing. Not read: daw.stem.fm (401, login required). No private endpoints, site scripts or network traffic were examined, and none will be: the Terms forbid extraction and scraping beyond the visual interface, and this plan does not depend on it.
+
+* **Stems**: licensed catalogue tracks are located by track information and downloaded as licensed Stem tracks "when available"; uploads are stemmed by the service ("let it stem the track for you"). Where separation runs is not stated. Stems are vocals, drums, bass and melody.
+* **Spotify import**: reads the user's public profile and playlists and turns playlists into "sessions". Nothing says Spotify audio is used. This matches the compliant pattern: Spotify supplies metadata, audio comes from a licensed catalogue or the user's own files.
+* **Uploads**: audio-fingerprint checked (ACRCloud plus internal); matches to licensed content are blocked and replaced by the official catalogue version. Only tracks you uploaded or created yourself can be exported; licensed catalogue music stays inside Stem devices and StemFM.
+* **Transitions**: three modes (Full Tracks, Balanced Mix, Short & Punchy), key matching (Camelot / Match Key / Preserve / Off), tempo and key shown per track, stem switches quantized to the beat, mixes ordered "where each tempo flows into the next". Phrase and downbeat detection: not stated. Mixes are built on the phone, M4A export.
+* **Stem2**: pairs over **Bluetooth** (auto-reconnect; falls back to local playback if Bluetooth drops), uses **Wi-Fi** (5 GHz recommended) for the STEM button, catalogue download and account sync, **USB-C** for charging and "future data or audio output", 64 GB storage (about 1,000-2,000 Stem tracks), an AUX input, and a one-time setup at STEM.FM Setup in a **Chromium-based browser** on Windows/Mac/Linux/Android that "connects your device and mirrors audio and controls". The protocol is not documented; the Chromium requirement suggests a browser device API but that is an inference, not evidence.
+* **Developer access**: no API, SDK or documented export for device content was found.
+
+### What this means for Beatmaker
+
+1. **Stem2 content**: Beatmaker cannot push content to the device through any documented route. Supported workflow: export your own stems/mixes (WAV/MP3) and use STEM.FM's own upload, which stems and syncs your own audio to the account and device. The official STEM.FM Setup page in Chrome remains the pairing path.
+2. **Stem2 audio**: if Windows exposes it as a Bluetooth audio endpoint, Beatmaker can play to it like any speaker (audio output only; this proves nothing about stem control).
+3. **Read-only discovery** (planned, needs the device connected): list the Bluetooth/USB services the device advertises, to document what it exposes. No pairing data is replayed, nothing is written to the device, no firmware or content is touched.
+4. **Spotify**: follow the same pattern as StemFM: use the Spotify library for metadata and for playback through Spotify, and match entries to local files you own for any processing.
