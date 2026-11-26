@@ -42,6 +42,12 @@ interface Deck {
   delay: DelayNode;
   echo: GainNode;
   cue: number;
+  /** The song's file on disk, for saving the session ('' if unknown). */
+  path: string;
+  crush: WaveShaperNode;
+  gate: GainNode;
+  gateOsc: OscillatorNode | null;
+  filterKnob: number;
   /** A loop in the song, [start, end] seconds. */
   loop: [number, number] | null;
   /** Pitch shift in semitones (key matching). */
@@ -126,8 +132,11 @@ export async function showDecks(): Promise<void> {
     const delay = new DelayNode(ctx, { maxDelayTime: 2, delayTime: 0.25 });
     const fb = new GainNode(ctx, { gain: 0.4 });
     const echo = new GainNode(ctx, { gain: 0 });
-    out.connect(lp).connect(hp).connect(master);
-    hp.connect(echo).connect(delay).connect(master);
+    // then a bit-crusher (off until switched on) and a gate that chops in time
+    const crush = new WaveShaperNode(ctx);
+    const gate = new GainNode(ctx, { gain: 1 });
+    out.connect(lp).connect(hp).connect(crush).connect(gate).connect(master);
+    gate.connect(echo).connect(delay).connect(master);
     delay.connect(fb).connect(delay);
     const trim = {} as Record<StemName, GainNode>;
     const node = await newNode();
@@ -147,7 +156,7 @@ export async function showDecks(): Promise<void> {
       pair(i, gains[s]);
     });
     pair(4, out);
-    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, trim, lp, hp, delay, echo, cue: 0, loop: null, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', gridNote: '', abort: null };
+    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, trim, lp, hp, delay, echo, cue: 0, path: '', crush, gate, gateOsc: null, filterKnob: 0, loop: null, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', gridNote: '', abort: null };
   };
   const decks: [Deck, Deck] = [await mkDeck(0), await mkDeck(1)];
   let keyMatch = false;
@@ -375,16 +384,16 @@ export async function showDecks(): Promise<void> {
       d.status = `Couldn't read it: ${(e as Error).message}`;
       return refresh();
     }
-    await loadBuffer(d, buf, file.name.replace(/\.[^.]+$/, ''));
+    await loadBuffer(d, buf, file.name.replace(/\.[^.]+$/, ''), undefined, desktop()?.pathOf?.(file) ?? '');
   };
   /** Put a decoded song on a deck; `given` skips the separation (parts already in hand). */
-  const loadBuffer = async (d: Deck, buf: AudioBuffer, name: string, given?: Stems) => {
+  const loadBuffer = async (d: Deck, buf: AudioBuffer, name: string, given?: Stems, path = '', gridKnown = false) => {
     d.abort?.abort();
     pause(d);
     try {
       const tempo = detectTempo(buf);
       const k = detectAudioKey(buf);
-      Object.assign(d, { buf, stems: null, name, bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, keyPc: k.key, minor: k.scale === 'minor', semi: 0, gridNote: '', peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
+      Object.assign(d, { buf, stems: null, name, path, bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, keyPc: k.key, minor: k.scale === 'minor', semi: 0, gridNote: '', peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
       const other = decks[d.side === 0 ? 1 : 0];
       if (!other.buf) for (const s of STEMS) assign[s] = d.side;
       applyGains();
@@ -393,7 +402,7 @@ export async function showDecks(): Promise<void> {
       // guesses a tempo and takes the first beat for the downbeat. A straight line through the downbeats gives
       // the bar length and where bar 1 starts (a steady tempo is assumed; a drifting one is not followed).
       const app = desktop();
-      if (!given && app?.beatsRun && (await app.beatsReady())) {
+      if (!given && !gridKnown && app?.beatsRun && (await app.beatsReady())) {
         d.status = 'Finding the beats…';
         refresh();
         const r = await app.beatsRun(new Uint8Array(await encodeWav(buf).arrayBuffer()));
@@ -404,10 +413,24 @@ export async function showDecks(): Promise<void> {
       d.abort = new AbortController();
       d.status = 'Separating the parts…';
       refresh();
+      // Parts separated before are kept on disk per song file: a restored session does not separate again.
+      const cache = path ? desktop()?.stemsCache : undefined;
+      if (!given && cache) {
+        const kept = await cache.get(path);
+        if (kept) {
+          const dec = (b: Uint8Array) => ctx.decodeAudioData(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+          given = { drums: await dec(kept.drums), bass: await dec(kept.bass), other: await dec(kept.other), vocals: await dec(kept.vocals) };
+        }
+      }
+      const fresh = !given;
       const stems = given ?? await separateStems(buf, { signal: d.abort.signal, onProgress: (f, msg) => ((d.status = `${msg} ${Math.round(f * 100)}%`), refreshStatus()) });
       d.stems = stems;
       d.status = '';
       await setBuffers(d);
+      if (fresh && cache) {
+        const w = async (b: AudioBuffer) => new Uint8Array(await encodeWav(b).arrayBuffer());
+        void cache.put(path, { drums: await w(stems.drums), bass: await w(stems.bass), other: await w(stems.other), vocals: await w(stems.vocals) });
+      }
       if (d.playing) start(d, pos(d) + 0.1); // carry on from the same place, now as parts
     } catch (e) {
       d.status = (e as Error).name === 'AbortError' ? '' : `Couldn't load: ${(e as Error).message}`;
@@ -461,9 +484,35 @@ export async function showDecks(): Promise<void> {
       d.echo.gain.setTargetAtTime(on ? 0.45 : 0, ctx.currentTime, 0.02);
       echoBtn.classList.toggle('dk-on', on);
     } }, 'Echo');
+    const gateBtn = h('button', { class: 'dk-chip', title: 'Gate: chops the sound in 16ths, in time with this song', onclick: () => {
+      if (d.gateOsc) {
+        d.gateOsc.stop();
+        d.gateOsc.disconnect();
+        d.gateOsc = null;
+        d.gate.gain.setTargetAtTime(1, ctx.currentTime, 0.01);
+      } else {
+        // a square wave at four cycles a beat (open for a 16th, shut for a 16th) swings the gain between 0 and 1, starting open on a beat
+        const osc = new OscillatorNode(ctx, { type: 'square', frequency: (d.bpm * d.rate) / 15 });
+        const depth = new GainNode(ctx, { gain: 0.5 });
+        d.gate.gain.setValueAtTime(0.5, ctx.currentTime);
+        osc.connect(depth).connect(d.gate.gain);
+        osc.start(d.playing ? nextBoundary(d, 1).when : ctx.currentTime);
+        d.gateOsc = osc;
+      }
+      gateBtn.classList.toggle('dk-on', !!d.gateOsc);
+    } }, 'Gate');
+    const crushBtn = h('button', { class: 'dk-chip', title: 'Bit-crush: a gritty, low-resolution sound', onclick: () => {
+      if (d.crush.curve) d.crush.curve = null;
+      else {
+        const steps = 10; // levels each way
+        d.crush.curve = Float32Array.from({ length: 4096 }, (_, i) => Math.round((i / 2047.5 - 1) * steps) / steps);
+      }
+      crushBtn.classList.toggle('dk-on', !!d.crush.curve);
+    } }, 'Crush');
     // one knob: left of centre closes a low-pass, right opens a high-pass
     const filter = h('input', { class: 'dk-filter', type: 'range', min: '-1', max: '1', step: '0.01', value: '0', title: 'Filter: left muffles, right thins, centre is off (double-click to reset)', oninput: () => {
       const v = Number(filter.value);
+      d.filterKnob = v;
       d.lp.frequency.setTargetAtTime(v < -0.02 ? 20000 * Math.pow(0.008, -v) : 20000, ctx.currentTime, 0.02);
       d.hp.frequency.setTargetAtTime(v > 0.02 ? 20 * Math.pow(400, v) : 20, ctx.currentTime, 0.02);
     }, ondblclick: () => ((filter.value = '0'), filter.dispatchEvent(new Event('input'))) }) as HTMLInputElement;
@@ -486,11 +535,13 @@ export async function showDecks(): Promise<void> {
         h('button', { class: 'dk-chip', title: 'Jump to the remembered spot', onclick: () => { if (!d.buf) return; if (d.playing) start(d, d.cue); else d.startPos = d.cue; refresh(); } }, 'To cue'),
         loopBtn,
         echoBtn,
+        gateBtn,
+        crushBtn,
         h('span', { class: 'dk-lbl' }, 'Filter'),
         filter,
         h('button', { class: 'dk-chip', title: 'Package this song’s four parts for the Stem2 speaker and copy them on if it is plugged in as a USB drive', onclick: () => void sendStem2(d) }, '→ Stem2')),
       status);
-    return { el, title, sub, status, disc, bpm, loopBtn };
+    return { el, title, sub, status, disc, bpm, loopBtn, filter };
   };
   const ui = [deckEl(decks[0]), deckEl(decks[1])];
   const pads = {} as Record<StemName, HTMLButtonElement>;
@@ -513,6 +564,46 @@ export async function showDecks(): Promise<void> {
     const r = await app.stem2Send({ stems: { other: await wav(d.stems.other), vocals: await wav(d.stems.vocals), bass: await wav(d.stems.bass), drums: await wav(d.stems.drums) }, title: d.name, artist: 'Beatmaker', bpm: d.bpm, bars, key: NOTE[d.keyPc], tonality: d.minor ? 'minor' : 'major' });
     d.status = r.error && !r.folder ? `Stem2: ${r.error}` : r.copied ? `On the Stem2 (${r.drive}). Eject it, unplug, and it appears after it restarts.` : `Packaged, not copied${r.error ? ` (${r.error})` : ': no Stem2 drive found. Put it in USB mode from Stem Desktop and press again'}. Files: ${r.folder}`;
     refreshStatus();
+  };
+  // Session: which songs are loaded (by file), their grids, cues and loops, and who plays what.
+  const saveSession = async () => {
+    const app = desktop();
+    if (!app?.mixerSession) return void toast('Saving a session needs the desktop app.', 'info');
+    if (decks.some((d) => d.buf && !d.path)) toast('A song without a file on disk cannot be restored later.', 'info');
+    const where = await app.mixerSession.save({
+      version: 1, sync, keyMatch, assign,
+      levels: [...levels.querySelectorAll('input')].map((el) => Number((el as HTMLInputElement).value)),
+      decks: decks.map((d) => ({ path: d.path, name: d.name, bpm: d.bpm, firstBeat: d.firstBeat, cue: d.cue, loop: d.loop, position: pos(d), filter: d.filterKnob })),
+    });
+    toast(`Session saved (${where}).`, 'ok');
+  };
+  const restoreSession = async () => {
+    const app = desktop();
+    const sess = (await app?.mixerSession?.load()) as null | { sync: boolean; keyMatch: boolean; assign: Record<StemName, 0 | 1>; levels: number[]; decks: { path: string; name: string; bpm: number; firstBeat: number; cue: number; loop: [number, number] | null; position: number; filter: number }[] };
+    if (!app || !sess) return void toast('No saved session.', 'info');
+    for (const [i, sd] of sess.decks.entries()) {
+      const d = decks[i];
+      if (!sd.path) continue;
+      d.status = 'Opening…';
+      refreshStatus();
+      try {
+        const bytes = await app.readFile(sd.path);
+        const buf = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+        await loadBuffer(d, buf, sd.name, undefined, sd.path, true);
+        // the saved grid, cue and place win over a fresh detection (they may have been corrected by hand)
+        Object.assign(d, { bpm: sd.bpm, firstBeat: sd.firstBeat, cue: sd.cue, loop: sd.loop, startPos: sd.position, gridNote: '' });
+        ui[i].filter.value = String(sd.filter ?? 0);
+        ui[i].filter.dispatchEvent(new Event('input'));
+      } catch (e) {
+        d.status = `Couldn't reopen ${sd.name}: ${(e as Error).message}`;
+      }
+    }
+    sync = sess.sync;
+    keyMatch = sess.keyMatch;
+    Object.assign(assign, sess.assign);
+    applyGains();
+    [...levels.querySelectorAll('input')].forEach((el, k) => (((el as HTMLInputElement).value = String(sess.levels?.[k] ?? 1)), el.dispatchEvent(new Event('input'))));
+    refresh();
   };
   const keyBtn = h('button', { class: 'dk-chip', title: 'Shift the incoming song into the playing song’s key (applies when it is next brought in)', onclick: () => ((keyMatch = !keyMatch), refresh()) });
   const syncBtn = h('button', { class: 'dk-chip', title: 'Play the incoming song at the playing song’s tempo (its pitch is kept)', onclick: () => ((sync = !sync), refresh()) });
@@ -556,7 +647,7 @@ export async function showDecks(): Promise<void> {
     root.remove();
   };
   const root = h('div', { class: 'dk' },
-    h('div', { class: 'dk-top' }, recBtn, h('div', { class: 'dk-head' }, 'Two-deck mixer'), keyBtn, syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
+    h('div', { class: 'dk-top' }, recBtn, h('button', { class: 'dk-chip', title: 'Save which songs are loaded, their grids, cues, loops and who plays what', onclick: () => void saveSession() }, 'Save session'), h('button', { class: 'dk-chip', onclick: () => void restoreSession() }, 'Restore session'), h('div', { class: 'dk-head' }, 'Two-deck mixer'), keyBtn, syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
     h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn, plan, levels), ui[1].el),
     h('div', { class: 'dk-waves' }, canvases[0], canvases[1]),
     h('div', { class: 'dk-bar' }, playAll, clock));
@@ -624,5 +715,5 @@ export async function showDecks(): Promise<void> {
   refresh();
   draw();
   // For tests and scripting: the same actions the buttons take.
-  (window as unknown as Record<string, unknown>).beatmakerDecks = { gridFrom, ctx, master: limiter, decks, assign, loadBuffer, start, pause, pos, transition, padClick, applyGains, setKeyMatch: (v: boolean) => (keyMatch = v) };
+  (window as unknown as Record<string, unknown>).beatmakerDecks = { saveSession, restoreSession, gridFrom, ctx, master: limiter, decks, assign, loadBuffer, start, pause, pos, transition, padClick, applyGains, setKeyMatch: (v: boolean) => (keyMatch = v) };
 }

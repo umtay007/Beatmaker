@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   earsScore: (refs, cands) => ipcRenderer.invoke('ears-score', refs, cands),
   devocalReady: () => ipcRenderer.invoke('devocal-ready'),
   beatsReady: () => ipcRenderer.invoke('beats-ready'),
+  pathOf: (file) => webUtils.getPathForFile(file) || '',
+  mixerSession: { load: () => ipcRenderer.invoke('mixer-session-load'), save: (data) => ipcRenderer.invoke('mixer-session-save', data) },
+  stemsCache: { get: (file) => ipcRenderer.invoke('stems-cache-get', file), put: (file, stems) => ipcRenderer.invoke('stems-cache-put', file, stems) },
   beatSearch: (tags) => ipcRenderer.invoke('beat-search', tags),
   beatFetch: (beat, record) => ipcRenderer.invoke('beat-fetch', beat, record),
   spotify: {

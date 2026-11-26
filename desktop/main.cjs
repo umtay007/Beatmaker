@@ -724,6 +724,46 @@ ipcMain.handle('beat-fetch', async (_e, beat, record) => {
   }
 });
 
+// Two-deck mixer: the last session (which songs, grids, cues, who plays what), and separated parts kept per song
+// file so a restored session does not separate again. Parts are WAVs in userData/stems/<key of path, size, date>.
+const sessionFile = () => path.join(app.getPath('userData'), 'mixer-session.json');
+ipcMain.handle('mixer-session-load', async () => {
+  try {
+    return JSON.parse(await fsp.readFile(sessionFile(), 'utf8'));
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle('mixer-session-save', async (_e, data) => {
+  await fsp.writeFile(sessionFile(), JSON.stringify(data, null, 2));
+  return sessionFile();
+});
+const STEM_NAMES = ['drums', 'bass', 'other', 'vocals'];
+async function stemsDir(file) {
+  const st = await fsp.stat(file);
+  return path.join(app.getPath('userData'), 'stems', crypto.createHash('sha1').update(file + '|' + st.size + '|' + st.mtimeMs).digest('hex').slice(0, 20));
+}
+ipcMain.handle('stems-cache-get', async (_e, file) => {
+  try {
+    const dir = await stemsDir(file);
+    const out = {};
+    for (const n of STEM_NAMES) out[n] = await fsp.readFile(path.join(dir, n + '.wav'));
+    return out;
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle('stems-cache-put', async (_e, file, stems) => {
+  try {
+    const dir = await stemsDir(file);
+    await fsp.mkdir(dir, { recursive: true });
+    for (const n of STEM_NAMES) await fsp.writeFile(path.join(dir, n + '.wav'), Buffer.from(stems[n]));
+    return dir;
+  } catch (e) {
+    return null;
+  }
+});
+
 // The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
 // sounds most like a reference, by music-listening models.
 ipcMain.handle('ears-ready', () => {

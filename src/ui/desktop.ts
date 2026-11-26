@@ -70,6 +70,12 @@ export interface DesktopApi {
   vocalPresets(): Promise<{ name: string; source: string; made: string; measured: Record<string, number | null>; tuning: { why: string } }[]>;
   /** Measure a reference vocal (WAV bytes) and save it as a preset. */
   vocalPresetMake(job: { reference: Uint8Array; name: string; source: string; bpm?: number }): Promise<{ preset?: { name: string; measured: Record<string, number | null> }; error?: string }>;
+  /** Where a chosen file lives on disk ('' if it has no path). */
+  pathOf(file: File): string;
+  /** The two-deck mixer's saved session. */
+  mixerSession: { load(): Promise<unknown>; save(data: unknown): Promise<string> };
+  /** Separated parts kept per song file (WAV bytes by part name). */
+  stemsCache: { get(file: string): Promise<Record<string, Uint8Array> | null>; put(file: string, stems: Record<string, Uint8Array>): Promise<string | null> };
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */
