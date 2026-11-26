@@ -18,6 +18,8 @@ export interface TidyOptions {
   keep?: number;
   /** How alike two blocks must be to count as repeats (0..1 note overlap, default 0.35). */
   alike?: number;
+  /** The grid notes are compared on, in ticks (default a 16th). Finer for parts with triplets or rolls. */
+  unit?: number;
 }
 
 export interface TidyResult {
@@ -40,14 +42,14 @@ interface Block {
   keys: Map<Key, Note>;
 }
 
-function blocks(notes: Note[], period: number, phase: number, bars: number): Block[] {
+function blocks(notes: Note[], period: number, phase: number, bars: number, unit: number): Block[] {
   const len = period * BAR;
   const out: Block[] = [];
   const first = phase * BAR - Math.ceil((phase * BAR) / len) * len;
   for (let start = first, i = 0; start < bars * BAR; start += len, i++) {
     const inside = notes.filter((n) => n.start >= start && n.start < start + len);
     const keys = new Map<Key, Note>();
-    for (const n of inside) keys.set(keyOf(Math.round((n.start - start) / STEP), n.pitch), n);
+    for (const n of inside) keys.set(keyOf(Math.round((n.start - start) / unit), n.pitch), n);
     out.push({ index: i, start, notes: inside, keys });
   }
   return out;
@@ -75,6 +77,7 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
   const minRepeats = o.minRepeats ?? 3;
   const keep = o.keep ?? 0.5;
   const alike = o.alike ?? 0.35;
+  const unit = o.unit ?? STEP;
   if (notes.length < 8) return { notes, period: 0, tidied: 0, groups: [] };
   // Score each loop length by how well every block matches its best partner anywhere in the song
   // (neighbours alone would count every section change against it).
@@ -82,7 +85,7 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
   for (const period of periods) {
     if (period * minRepeats > o.bars) continue;
     for (let phase = 0; phase < period; phase++) {
-      const bl = blocks(notes, period, phase, o.bars).filter((b) => b.notes.length);
+      const bl = blocks(notes, period, phase, o.bars, unit).filter((b) => b.notes.length);
       if (bl.length < minRepeats) continue;
       const sim = bl.map((a) => bl.map((b) => (a === b ? 1 : overlap(a.keys, b.keys))));
       const bestPartner = sim.map((row, i) => Math.max(...row.filter((_, j) => j !== i)));
@@ -147,7 +150,7 @@ export function tidyRepeats(notes: Note[], o: TidyOptions): TidyResult {
     for (const [k, v] of votes) {
       if (v.steps.length < Math.max(2, Math.ceil(g.length * keep))) continue;
       const p = Number(k.split(':')[1]);
-      pattern.push({ id: 0, pitch: p, start: median(v.steps) * STEP, dur: Math.max(1, median(v.durs)), vel: median(v.vels) });
+      pattern.push({ id: 0, pitch: p, start: median(v.steps) * unit, dur: Math.max(1, median(v.durs)), vel: median(v.vels) });
     }
     for (const b of g) {
       for (const n of b.notes) replaced.add(n);

@@ -165,6 +165,34 @@ export function holdNotes(notes: Note[], mergeGap: number, fillGap: number): Not
 }
 
 /** Drum notes from the grid detector's hits. `ticks[i]` is the tick of step i. */
+/**
+ * Notes from drum hits found off the grid: each goes to the nearest 16th, 8th-triplet, 32nd or 16th-triplet
+ * line, the plainer lines winning a close call. `tickOf` turns a hit's time into ticks.
+ */
+export function onsetNotes(onsets: { time: number; voice: 'kick' | 'snare' | 'hat'; open: boolean; vel: number }[], tickOf: (sec: number) => number): Note[] {
+  // [line spacing in ticks, ticks of handicap]: at PPQ 96 a 16th is 24, an 8th triplet 32, a 32nd 12, a 16th triplet 16
+  const LINES = [[STEP, 0], [(STEP * 4) / 3, 2], [STEP / 2, 4], [(STEP * 2) / 3, 4]];
+  const seen = new Set<string>();
+  const out: Note[] = [];
+  for (const o of onsets) {
+    const t = tickOf(o.time);
+    let start = 0;
+    let best = Infinity;
+    for (const [gap, handicap] of LINES) {
+      const at = Math.round(t / gap) * gap;
+      if (Math.abs(at - t) + handicap < best) {
+        best = Math.abs(at - t) + handicap;
+        start = at;
+      }
+    }
+    const pitch = o.voice === 'kick' ? 36 : o.voice === 'snare' ? 38 : o.open ? 46 : 42;
+    if (start < 0 || seen.has(pitch + ':' + start)) continue;
+    seen.add(pitch + ':' + start);
+    out.push({ id: newNoteId(), pitch, start, dur: STEP / 2, vel: o.vel });
+  }
+  return out;
+}
+
 export function drumNotes(steps: DrumStep[], ticks: number[]): Note[] {
   const out: Note[] = [];
   const add = (pitch: number, i: number, vel: number) => out.push({ id: newNoteId(), pitch, start: ticks[i], dur: STEP, vel });

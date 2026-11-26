@@ -10,8 +10,8 @@
  */
 import { detectAudioKey } from '../audio/key';
 import { busiestStretch, busyStretches, finderCandidates, findInstrument } from '../audio/finder';
-import { transcribePitches, drumGrid } from '../audio/transcribe';
-import { drumNotes, holdNotes, splitParts } from '../audio/parts';
+import { transcribePitches, drumOnsets } from '../audio/transcribe';
+import { onsetNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
 import { tempoMap } from '../audio/tempomap';
@@ -191,7 +191,8 @@ export async function autoRemake(
   notesStep(0, 'Finding the drums…');
   await pause();
   const drumsIn = stems?.drums ?? buf;
-  const drums = drumNotes(drumGrid(drumsIn, ticks.map((t) => tl.tickToSec(t) - off)), ticks);
+  // hits found where they land, then put on the nearest line: 16ths alone lose triplet claps and hat rolls
+  const drums = onsetNotes(drumOnsets(drumsIn), (sec) => tl.secToTick(sec + off)).filter((n) => n.start <= ticks[ticks.length - 1]);
   const kicks = new Set<number>(drums.filter((n) => n.pitch === 36).map((n) => n.start));
   aborted(signal);
   let bass: Note[] = [];
@@ -257,9 +258,12 @@ export async function autoRemake(
     // Drums and bass repeat bar for bar (and score better tidied); the chords and melody of a song
     // that is only loosely a loop lose notes and gain others when copied across it.
     if (opts.tidy && (p.role === 'drums' || p.role === 'bass') && inRange.length >= 8) {
-      const r = tidyRepeats(inRange, { bars: song.bars });
-      p.notes = r.notes;
-      if (r.tidied) {
+      // drums on a fine grid (their hits sit on triplet and 32nd lines too)
+      const r = tidyRepeats(inRange, { bars: song.bars, unit: p.role === 'drums' ? 4 : undefined });
+      // A part that is not really a loop loses most of its notes to the consensus: leave it as heard.
+      const loose = r.notes.length < (p.role === 'drums' ? 0.9 : 0.7) * inRange.length;
+      p.notes = loose ? inRange : r.notes;
+      if (r.tidied && !loose) {
         report.push(`${p.name}: repeats tidied (a ${r.period}-bar loop, ${r.tidied} passes), and linked so editing one pass edits them all`);
         loopsOf.set(p.name, { period: r.period, groups: r.groups });
       }

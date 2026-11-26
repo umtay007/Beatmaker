@@ -337,6 +337,8 @@ export interface DrumFeatures {
   lowDecay: number[];
   /** Hat band level change from the hit to 120 ms later (dB): open hats ring. */
   hatDecay: number[];
+  /** Each band's level (dB) frame by frame: frame f is centred `start + f * hop` seconds into the audio. */
+  frames: { low: Float32Array; crack: Float32Array; hat: Float32Array; start: number; hop: number };
 }
 
 /**
@@ -359,7 +361,7 @@ export function drumFeatures(buf: Pick<AudioBuffer, 'sampleRate' | 'length' | 'n
   const mag = new Float32Array(N / 2);
   let prev = new Float32Array(N / 2);
   const flux = { kick: new Float32Array(nFrames), snare: new Float32Array(nFrames), body: new Float32Array(nFrames), mid: new Float32Array(nFrames), hat: new Float32Array(nFrames) };
-  const level = { low: new Float32Array(nFrames), hat: new Float32Array(nFrames) };
+  const level = { low: new Float32Array(nFrames), hat: new Float32Array(nFrames), crack: new Float32Array(nFrames) };
   for (let f = 0; f < nFrames; f++) {
     const o = lo + f * hop;
     for (let i = 0; i < N; i++) {
@@ -383,6 +385,7 @@ export function drumFeatures(buf: Pick<AudioBuffer, 'sampleRate' | 'length' | 'n
     };
     level.low[f] = bandDb(BANDS.kick);
     level.hat[f] = bandDb(BANDS.hat);
+    level.crack[f] = bandDb(BANDS.snare);
     prev = logm;
   }
   const frameAt = (t: number) => Math.round((t * sr - lo - N / 2) / hop);
@@ -397,7 +400,7 @@ export function drumFeatures(buf: Pick<AudioBuffer, 'sampleRate' | 'length' | 'n
     for (let f = clampF(frameAt(t - 0.01)); f <= clampF(frameAt(t + 0.04)); f++) m = Math.max(m, arr[f]);
     return m;
   };
-  const out: DrumFeatures = { kick: [], snare: [], body: [], mid: [], hat: [], lowDecay: [], hatDecay: [] };
+  const out: DrumFeatures = { kick: [], snare: [], body: [], mid: [], hat: [], lowDecay: [], hatDecay: [], frames: { ...level, start: (lo + N / 2) / sr, hop: hop / sr } };
   for (const t of steps) {
     out.kick.push(peak(flux.kick, t));
     out.snare.push(peak(flux.snare, t));
@@ -468,3 +471,69 @@ export function drumGrid(buf: Pick<AudioBuffer, 'sampleRate' | 'length' | 'numbe
   const hat = hits(f.hat, sensitivity);
   return steps.map((_, i) => ({ kick: kick[i], snare: snare[i], hat: hat[i], open: f.hatDecay[i] > -6 }));
 }
+
+/** A drum hit found where it actually lands (not on a grid step). */
+export interface DrumOnset {
+  /** Seconds into the audio. */
+  time: number;
+  voice: 'kick' | 'snare' | 'hat';
+  open: boolean;
+  vel: number;
+}
+
+/**
+ * Find the drum hits wherever they land, for parts that don't sit on 16ths (triplet claps, hat rolls). A hit is
+ * where a band's level jumps: at least RISE dB above the quietest of the 40 ms before, the biggest jump within
+ * 40 ms, and loud enough to hear beside that band's loudest. (drumGrid's measure, a rise in log level split into
+ * hits and the rest, takes a blip out of silence for more of a hit than a loud clap after a quiet one.)
+ */
+export function drumOnsets(buf: Pick<AudioBuffer, 'sampleRate' | 'length' | 'numberOfChannels' | 'getChannelData'>, sensitivity = 1): DrumOnset[] {
+  const { frames } = drumFeatures(buf, [0, buf.length / buf.sampleRate]);
+  const RISE = 8 / sensitivity;
+  const BACK = Math.round(0.04 / frames.hop);
+  const n = frames.low.length;
+  const out: DrumOnset[] = [];
+  const topOf = (a: Float32Array) => [...a].sort((x, y) => x - y)[Math.floor(n * 0.995)] ?? 0;
+  // a band far quieter than the loudest one holds no drum of its own (rumble under a part with no kick)
+  const heard = Math.max(topOf(frames.low), topOf(frames.crack), topOf(frames.hat)) - QUIET;
+  for (const voice of ['snare', 'kick', 'hat'] as const) {
+    const raw = voice === 'snare' ? frames.crack : voice === 'kick' ? frames.low : frames.hat;
+    const top = topOf(raw);
+    // nothing under 45 dB below the band's loudest counts: a rise out of silence is no bigger than one out of that
+    const lev = raw.map((v) => Math.max(v, top - 45));
+    const rise = new Float32Array(n);
+    for (let f = BACK; f < n; f++) {
+      let min = Infinity;
+      for (let k = f - BACK; k < f; k++) min = Math.min(min, lev[k]);
+      rise[f] = lev[f] - min;
+    }
+    const found: { f: number; time: number }[] = [];
+    for (let f = BACK; f < n - BACK; f++) {
+      if (rise[f] < RISE || lev[f] < Math.max(top - 35, heard)) continue;
+      let peak = true;
+      for (let k = f - BACK; peak && k <= f + BACK; k++) if (rise[k] > rise[f] || (rise[k] === rise[f] && k < f)) peak = false;
+      if (!peak) continue;
+      // A kick is louder in the lows than in the crack band: a clap's body or a voice's rumble is not one.
+      if (voice === 'kick' && frames.low[f] < frames.crack[f]) continue;
+      // the hit starts where the level climbs fastest on the way up
+      let at = f;
+      for (let k = f - BACK + 1, steep = 0; k <= f; k++) if (lev[k] - lev[k - 1] > steep) { steep = lev[k] - lev[k - 1]; at = k; }
+      const time = frames.start + at * frames.hop + ONSET_LEAD;
+      // A clap or snare has highs of its own: a hat on the same hit only where the highs are nearly as loud.
+      if (voice === 'hat' && frames.hat[f] < frames.crack[f] - 8 && out.some((o) => o.voice === 'snare' && Math.abs(o.time - time) < 0.03)) continue;
+      found.push({ f, time });
+    }
+    // How hard each hit plays, from how loud it is beside the voice's loudest (a hit's gain is its velocity to
+    // the power 1.2).
+    const loud = found.map((x) => raw[x.f]).sort((a, b) => a - b)[Math.floor(found.length * 0.95)] ?? 0;
+    for (const x of found) {
+      const ring = raw[Math.min(n - 1, x.f + Math.round(0.12 / frames.hop))] - raw[x.f];
+      out.push({ time: x.time, voice, open: voice === 'hat' && ring > -6, vel: Math.max(0.2, Math.min(1, 10 ** ((raw[x.f] - loud) / 24))) });
+    }
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+/** Seconds from the frame where a band climbs fastest to the hit itself (set against hits of known time). */
+/** A band this many dB under the loudest band holds no drum of its own. */
+const QUIET = 32;
+const ONSET_LEAD = 0.005;
