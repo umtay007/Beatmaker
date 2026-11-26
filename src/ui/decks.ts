@@ -4,9 +4,10 @@
  * to the other song on the next beat. "Transition" hands all four over in stages (drums, bass, the rest,
  * vocals), two bars apart.
  *
- * Sync plays the incoming song at the lead song's tempo by changing its speed, which also moves its pitch
- * (no key lock yet): the amount is shown on the deck.
+ * Each deck plays through Signalsmith Stretch (MIT), so Sync changes a song's tempo without moving its pitch,
+ * and Key can shift the incoming song into the lead song's key.
  */
+import SignalsmithStretch, { type StretchNode } from '../vendor/signalsmith-stretch.mjs';
 import { detectAudioKey } from '../audio/key';
 import { separateStems, type Stems } from '../audio/separate';
 import { detectTempo, peakEnvelope } from '../audio/tempo';
@@ -32,7 +33,12 @@ interface Deck {
   peaks: Float32Array | null;
   gains: Record<StemName, GainNode>;
   out: GainNode;
-  sources: AudioBufferSourceNode[];
+  node: StretchNode;
+  split: ChannelSplitterNode;
+  /** Pitch shift in semitones (key matching). */
+  semi: number;
+  keyPc: number;
+  minor: boolean;
   playing: boolean;
   startCtx: number;
   startPos: number;
@@ -45,31 +51,92 @@ const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.flo
 const FADE_IN = Float32Array.from({ length: 33 }, (_, i) => Math.sin((i / 32) * (Math.PI / 2)));
 const FADE_OUT = Float32Array.from({ length: 33 }, (_, i) => Math.cos((i / 32) * (Math.PI / 2)));
 
-export function showDecks(): void {
+export async function showDecks(): Promise<void> {
   const ctx = new AudioContext();
   const master = ctx.createGain();
-  master.connect(ctx.destination);
+  // A safety limiter: two songs' parts can add up past full scale.
+  const limiter = new DynamicsCompressorNode(ctx, { threshold: -8, knee: 0, ratio: 20, attack: 0.001, release: 0.1 });
+  master.connect(limiter);
+  limiter.connect(ctx.destination);
   const tap = ctx.createMediaStreamDestination();
-  master.connect(tap);
+  limiter.connect(tap);
+  /** How late the stretch engine's audio is against its schedule (measured: both decks alike, 168 ms). */
+  const LAT = 0.168;
 
-  const mkDeck = (side: 0 | 1): Deck => {
+  // One stretch node per deck carries all of its audio, so the parts cannot drift apart: channel pairs 0-3 are
+  // the four parts, pair 4 is the whole song (heard until the parts are separated).
+  // One (unused) input on purpose: with none, the library's idle path reads a missing input, throws, and the node is dead.
+  const newNode = () => SignalsmithStretch(ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [10] });
+  const mkDeck = async (side: 0 | 1): Promise<Deck> => {
     const out = ctx.createGain();
     out.connect(master);
+    const node = await newNode();
+    const split = ctx.createChannelSplitter(10);
+    node.connect(split);
+    const pair = (i: number, dest: AudioNode) => {
+      const m = ctx.createChannelMerger(2);
+      split.connect(m, 2 * i, 0);
+      split.connect(m, 2 * i + 1, 1);
+      m.connect(dest);
+    };
     const gains = {} as Record<StemName, GainNode>;
-    for (const s of STEMS) {
+    STEMS.forEach((s, i) => {
       gains[s] = ctx.createGain();
       gains[s].connect(out);
-    }
-    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, sources: [], playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', abort: null };
+      pair(i, gains[s]);
+    });
+    pair(4, out);
+    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', abort: null };
   };
-  const decks: [Deck, Deck] = [mkDeck(0), mkDeck(1)];
+  const decks: [Deck, Deck] = [await mkDeck(0), await mkDeck(1)];
+  let keyMatch = false;
+  /** A buffer's channels at the context's sample rate (the stretch node takes raw samples). */
+  const atRate = async (b: AudioBuffer): Promise<Float32Array[]> => {
+    let x = b;
+    if (b.sampleRate !== ctx.sampleRate) {
+      const off = new OfflineAudioContext(2, Math.ceil(b.duration * ctx.sampleRate), ctx.sampleRate);
+      const src = off.createBufferSource();
+      src.buffer = b;
+      src.connect(off.destination);
+      src.start();
+      x = await off.startRendering();
+    }
+    return [x.getChannelData(0), x.getChannelData(x.numberOfChannels > 1 ? 1 : 0)];
+  };
+  const setBuffers = async (d: Deck) => {
+    if (!d.buf) return;
+    const parts = d.stems ? await Promise.all(STEMS.map((s) => atRate(d.stems![s]))) : null;
+    const mix = parts ? null : await atRate(d.buf);
+    const len = Math.max(...(parts ? parts.flat() : mix!).map((c) => c.length));
+    const fit = (c: Float32Array | null) => {
+      if (c && c.length === len) return c;
+      const o = new Float32Array(len);
+      if (c) o.set(c);
+      return o;
+    };
+    const silent = fit(null);
+    const chans = parts ? [...parts.flat().map(fit), silent, silent] : [...Array<Float32Array>(8).fill(silent), ...mix!.map(fit)];
+    // A fresh node for each load: the library's dropBuffers() never returns when channels share one array (the
+    // silent ones do), and sharing them is what keeps the memory down.
+    d.node.schedule({ active: false });
+    d.node.disconnect();
+    d.node = await newNode();
+    d.node.connect(d.split);
+    await d.node.addBuffers(chans);
+  };
+  /** Semitones that bring `d` into `ref`'s key (relative major and minor count as one key), the shorter way round. */
+  const keyShift = (d: Deck, ref: Deck): number => {
+    const tonic = (x: Deck) => (x.keyPc + (x.minor ? 3 : 0)) % 12;
+    return ((tonic(ref) - tonic(d) + 18) % 12) - 6;
+  };
   /** Which deck each part is heard from. */
   const assign: Record<StemName, 0 | 1> = { vocals: 0, other: 0, bass: 0, drums: 0 };
   let sync = true;
   let rec: MediaRecorder | null = null;
   let busy = false; // a transition is under way
 
-  const pos = (d: Deck) => (d.playing ? d.startPos + Math.max(0, ctx.currentTime - d.startCtx) * d.rate : d.startPos);
+  /** Where the deck is heard to be now (the engine's delay taken off). */
+  const pos = (d: Deck) => (d.playing ? d.startPos + Math.max(0, ctx.currentTime - LAT - d.startCtx) * d.rate : d.startPos);
   const lead = (): Deck => decks[STEMS.filter((s) => assign[s] === 1).length > 2 ? 1 : 0];
   const beatLen = (d: Deck) => 60 / d.bpm;
 
@@ -81,39 +148,13 @@ export function showDecks(): void {
     return target / d.bpm;
   };
 
-  const stopSources = (d: Deck) => {
-    for (const s of d.sources) {
-      s.onended = null;
-      try {
-        s.stop();
-      } catch {
-        /* not started */
-      }
-      s.disconnect();
-    }
-    d.sources = [];
-  };
-  const start = (d: Deck, from: number, when = ctx.currentTime + 0.03) => {
+  const stopSources = (d: Deck) => d.node.schedule({ active: false });
+  // `when` is when it should be HEARD: the engine is told LAT earlier. (Times here are heard times throughout.)
+  const start = (d: Deck, from: number, heard = ctx.currentTime + LAT + 0.05) => {
     if (!d.buf) return;
-    stopSources(d);
+    const when = Math.max(ctx.currentTime + 0.02, heard - LAT);
     const at = Math.max(0, Math.min(from, d.buf.duration - 0.05));
-    const make = (buf: AudioBuffer, dest: AudioNode) => {
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.playbackRate.value = d.rate;
-      src.connect(dest);
-      src.start(when, at);
-      d.sources.push(src);
-      return src;
-    };
-    // Until the parts are separated the whole song plays (it cannot be split between decks yet).
-    if (d.stems) for (const s of STEMS) make(d.stems[s], d.gains[s]);
-    else make(d.buf, d.out);
-    d.sources[0].onended = () => {
-      d.playing = false;
-      d.startPos = 0;
-      refresh();
-    };
+    d.node.schedule({ output: when, active: true, input: at, rate: d.rate, semitones: d.semi });
     d.playing = true;
     d.startCtx = when;
     d.startPos = at;
@@ -137,7 +178,9 @@ export function showDecks(): void {
     const p = pos(d);
     if (!d.playing) return { when: ctx.currentTime + 0.05, at: p };
     const unit = beats * beatLen(d);
-    const at = d.firstBeat + Math.ceil((p - d.firstBeat) / unit + 0.02) * unit;
+    let at = d.firstBeat + Math.ceil((p - d.firstBeat) / unit + 0.02) * unit;
+    // far enough ahead for the other deck to be started in time for it
+    while ((at - p) / d.rate < LAT + 0.05) at += unit;
     return { when: ctx.currentTime + (at - p) / d.rate, at };
   };
   /** Start the other deck in time with the playing one, on the playing one's next bar. Returns when. */
@@ -145,6 +188,7 @@ export function showDecks(): void {
     if (to.playing) return nextBoundary(from, 1).when;
     const { when } = nextBoundary(from, 4);
     to.rate = sync && from.buf ? syncRate(to, from) : 1;
+    to.semi = keyMatch ? keyShift(to, from) : 0;
     const bar = 4 * beatLen(to);
     const at = to.firstBeat + Math.max(0, Math.ceil((to.startPos - to.firstBeat) / bar - 0.001)) * bar;
     start(to, at, when);
@@ -201,25 +245,37 @@ export function showDecks(): void {
   const load = async (d: Deck) => {
     const file = await pickFile('audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac');
     if (!file) return;
-    d.abort?.abort();
-    pause(d);
     d.status = 'Reading…';
     refresh();
+    let buf: AudioBuffer;
     try {
-      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    } catch (e) {
+      d.status = `Couldn't read it: ${(e as Error).message}`;
+      return refresh();
+    }
+    await loadBuffer(d, buf, file.name.replace(/\.[^.]+$/, ''));
+  };
+  /** Put a decoded song on a deck; `given` skips the separation (parts already in hand). */
+  const loadBuffer = async (d: Deck, buf: AudioBuffer, name: string, given?: Stems) => {
+    d.abort?.abort();
+    pause(d);
+    try {
       const tempo = detectTempo(buf);
       const k = detectAudioKey(buf);
-      Object.assign(d, { buf, stems: null, name: file.name.replace(/\.[^.]+$/, ''), bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
+      Object.assign(d, { buf, stems: null, name, bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, keyPc: k.key, minor: k.scale === 'minor', semi: 0, peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
       const other = decks[d.side === 0 ? 1 : 0];
       if (!other.buf) for (const s of STEMS) assign[s] = d.side;
       applyGains();
+      await setBuffers(d);
       d.abort = new AbortController();
       d.status = 'Separating the parts…';
       refresh();
-      const stems = await separateStems(buf, { signal: d.abort.signal, onProgress: (f, msg) => ((d.status = `${msg} ${Math.round(f * 100)}%`), refreshStatus()) });
+      const stems = given ?? await separateStems(buf, { signal: d.abort.signal, onProgress: (f, msg) => ((d.status = `${msg} ${Math.round(f * 100)}%`), refreshStatus()) });
       d.stems = stems;
       d.status = '';
-      if (d.playing) start(d, pos(d)); // carry on from the same place, now as parts
+      await setBuffers(d);
+      if (d.playing) start(d, pos(d) + 0.1); // carry on from the same place, now as parts
     } catch (e) {
       d.status = (e as Error).name === 'AbortError' ? '' : `Couldn't load: ${(e as Error).message}`;
     }
@@ -274,7 +330,8 @@ export function showDecks(): void {
   const ui = [deckEl(decks[0]), deckEl(decks[1])];
   const pads = {} as Record<StemName, HTMLButtonElement>;
   for (const s of STEMS) pads[s] = h('button', { class: `dk-pad dk-pad-${s}`, onclick: () => padClick(s) }) as HTMLButtonElement;
-  const syncBtn = h('button', { class: 'dk-chip', title: 'Play the incoming song at the playing song’s tempo (its pitch moves with it)', onclick: () => ((sync = !sync), refresh()) });
+  const keyBtn = h('button', { class: 'dk-chip', title: 'Shift the incoming song into the playing song’s key (applies when it is next brought in)', onclick: () => ((keyMatch = !keyMatch), refresh()) });
+  const syncBtn = h('button', { class: 'dk-chip', title: 'Play the incoming song at the playing song’s tempo (its pitch is kept)', onclick: () => ((sync = !sync), refresh()) });
   const recBtn = h('button', { class: 'dk-chip', onclick: () => {
     if (rec) return void rec.stop();
     const chunks: Blob[] = [];
@@ -314,7 +371,7 @@ export function showDecks(): void {
     root.remove();
   };
   const root = h('div', { class: 'dk' },
-    h('div', { class: 'dk-top' }, recBtn, h('div', { class: 'dk-head' }, 'Two-deck mixer'), syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
+    h('div', { class: 'dk-top' }, recBtn, h('div', { class: 'dk-head' }, 'Two-deck mixer'), keyBtn, syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
     h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn), ui[1].el),
     h('div', { class: 'dk-waves' }, canvases[0], canvases[1]),
     h('div', { class: 'dk-bar' }, playAll, clock));
@@ -325,8 +382,7 @@ export function showDecks(): void {
     decks.forEach((d, i) => {
       const u = ui[i];
       u.title.textContent = d.name || 'No song';
-      const cents = Math.round(1200 * Math.log2(d.rate));
-      u.sub.textContent = d.buf ? `${d.key} · ${d.bpm} BPM${Math.abs(d.rate - 1) > 0.001 ? ` · playing ${Math.round(d.rate * 1000) / 10}% speed (pitch ${cents > 0 ? '+' : ''}${cents} cents)` : ''}${d === lead() && decks[1 - i].buf ? ' · lead' : ''}` : 'Click the disc to choose one';
+      u.sub.textContent = d.buf ? `${d.key} · ${d.bpm} BPM${Math.abs(d.rate - 1) > 0.001 ? ` · at ${Math.round(d.bpm * d.rate * 10) / 10} BPM, pitch kept` : ''}${d.semi ? ` · key ${d.semi > 0 ? '+' : ''}${d.semi} st` : ''}${d === lead() && decks[1 - i].buf ? ' · lead' : ''}` : 'Click the disc to choose one';
       u.disc.textContent = !d.buf ? '+' : d.playing ? '❚❚' : '▶';
       if (document.activeElement !== u.bpm) u.bpm.value = String(d.bpm);
       u.bpm.hidden = !d.buf;
@@ -338,6 +394,7 @@ export function showDecks(): void {
       pads[s].title = `${LABEL[s]}: from ${decks[assign[s]].name || 'deck ' + (assign[s] + 1)}. Click to take it from the other song on the next beat.`;
     }
     syncBtn.textContent = sync ? 'Sync: on' : 'Sync: off';
+    keyBtn.textContent = keyMatch ? 'Key: match' : 'Key: original';
     recBtn.textContent = rec ? '■ Stop recording' : '● Record';
     transBtn.toggleAttribute('disabled', busy);
     playAll.textContent = decks.some((d) => d.playing) ? '❚❚' : '▶';
@@ -371,6 +428,7 @@ export function showDecks(): void {
       g.fillStyle = '#fff';
       g.fillRect(w / 2 - 1, 0, 2, hgt);
     });
+    for (const d of decks) if (d.playing && d.buf && pos(d) >= d.buf.duration - 0.06) (pause(d), (d.startPos = 0), refresh());
     const l = lead();
     clock.textContent = l.buf ? `${l.name}   ${fmt(pos(l))} / ${fmt(l.buf.duration)}` : '';
     raf = requestAnimationFrame(draw);
@@ -378,4 +436,6 @@ export function showDecks(): void {
   applyGains();
   refresh();
   draw();
+  // For tests and scripting: the same actions the buttons take.
+  (window as unknown as Record<string, unknown>).beatmakerDecks = { ctx, master: limiter, decks, assign, loadBuffer, start, pause, pos, transition, padClick, applyGains, setKeyMatch: (v: boolean) => (keyMatch = v) };
 }

@@ -155,7 +155,7 @@ export class TopBar {
       '-',
       { label: 'Import MIDI…', icon: 'upload', action: () => a.pickAndOpen('.mid,.midi,audio/midi') },
       { label: 'Load reference audio…', icon: 'wave', action: () => a.pickAndOpen('') },
-      { label: 'Two-deck stem mixer…', icon: 'sparkle', action: () => showDecks() },
+      { label: 'Two-deck stem mixer…', icon: 'sparkle', action: () => void showDecks() },
       { label: 'Remake a song automatically…', icon: 'sparkle', action: () => void showRemake(this.store, this.engine, a, () => this.ab.open()) },
       ...(desktop() ? [{ label: 'Remake songs and export everything…', icon: 'sparkle', hint: 'no clicks after', action: () => void desktop()!.chooseSongs() }] : []),
       { label: 'Load drum pack…', icon: 'drum', hint: 'any sample pack', action: () => a.loadDrumPack() },
