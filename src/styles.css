@@ -2092,3 +2092,10 @@ button {
 .dk-clock { font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: pre; }
 
 .dk-plan { max-width: 300px; min-height: 60px; text-align: center; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+.dk-on { background: var(--accent); color: var(--accent-ink); }
+.dk-lbl { font-size: 12px; color: var(--muted); }
+.dk-filter { width: 110px; }
+.dk-levels { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 14px; font-size: 11px; color: var(--muted); }
+.dk-levels label { display: flex; flex-direction: column; align-items: center; }
+.dk-levels input { width: 96px; }

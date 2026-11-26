@@ -35,6 +35,15 @@ interface Deck {
   out: GainNode;
   node: StretchNode;
   split: ChannelSplitterNode;
+  /** Volume of each part (set by the level sliders, both decks alike). */
+  trim: Record<StemName, GainNode>;
+  lp: BiquadFilterNode;
+  hp: BiquadFilterNode;
+  delay: DelayNode;
+  echo: GainNode;
+  cue: number;
+  /** A loop in the song, [start, end] seconds. */
+  loop: [number, number] | null;
   /** Pitch shift in semitones (key matching). */
   semi: number;
   keyPc: number;
@@ -96,8 +105,12 @@ export async function showDecks(): Promise<void> {
   const limiter = new DynamicsCompressorNode(ctx, { threshold: -8, knee: 0, ratio: 20, attack: 0.001, release: 0.1 });
   master.connect(limiter);
   limiter.connect(ctx.destination);
-  const tap = ctx.createMediaStreamDestination();
-  limiter.connect(tap);
+  // Recording: the output as it is heard, kept as samples and saved as a WAV.
+  let recChunks: [Float32Array, Float32Array][] | null = null;
+  const recTap = ctx.createScriptProcessor(4096, 2, 2);
+  recTap.onaudioprocess = (e) => recChunks?.push([e.inputBuffer.getChannelData(0).slice(), e.inputBuffer.getChannelData(1).slice()]);
+  limiter.connect(recTap);
+  recTap.connect(ctx.destination);
   /** How late the stretch engine's audio is against its schedule (measured: both decks alike, 168 ms). */
   const LAT = 0.168;
 
@@ -107,7 +120,16 @@ export async function showDecks(): Promise<void> {
   const newNode = () => SignalsmithStretch(ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [10] });
   const mkDeck = async (side: 0 | 1): Promise<Deck> => {
     const out = ctx.createGain();
-    out.connect(master);
+    // deck sound: filter (one knob: low-pass to the left, high-pass to the right), then an echo send in time
+    const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: 0.9 });
+    const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 20, Q: 0.9 });
+    const delay = new DelayNode(ctx, { maxDelayTime: 2, delayTime: 0.25 });
+    const fb = new GainNode(ctx, { gain: 0.4 });
+    const echo = new GainNode(ctx, { gain: 0 });
+    out.connect(lp).connect(hp).connect(master);
+    hp.connect(echo).connect(delay).connect(master);
+    delay.connect(fb).connect(delay);
+    const trim = {} as Record<StemName, GainNode>;
     const node = await newNode();
     const split = ctx.createChannelSplitter(10);
     node.connect(split);
@@ -120,11 +142,12 @@ export async function showDecks(): Promise<void> {
     const gains = {} as Record<StemName, GainNode>;
     STEMS.forEach((s, i) => {
       gains[s] = ctx.createGain();
-      gains[s].connect(out);
+      trim[s] = ctx.createGain();
+      gains[s].connect(trim[s]).connect(out);
       pair(i, gains[s]);
     });
     pair(4, out);
-    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', gridNote: '', abort: null };
+    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, trim, lp, hp, delay, echo, cue: 0, loop: null, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', gridNote: '', abort: null };
   };
   const decks: [Deck, Deck] = [await mkDeck(0), await mkDeck(1)];
   let keyMatch = false;
@@ -170,11 +193,14 @@ export async function showDecks(): Promise<void> {
   /** Which deck each part is heard from. */
   const assign: Record<StemName, 0 | 1> = { vocals: 0, other: 0, bass: 0, drums: 0 };
   let sync = true;
-  let rec: MediaRecorder | null = null;
   let busy = false; // a transition is under way
 
   /** Where the deck is heard to be now (the engine's delay taken off). */
-  const pos = (d: Deck) => (d.playing ? d.startPos + Math.max(0, ctx.currentTime - LAT - d.startCtx) * d.rate : d.startPos);
+  const pos = (d: Deck) => {
+    if (!d.playing) return d.startPos;
+    const p = d.startPos + Math.max(0, ctx.currentTime - LAT - d.startCtx) * d.rate;
+    return d.loop && p >= d.loop[1] ? d.loop[0] + ((p - d.loop[0]) % (d.loop[1] - d.loop[0])) : p;
+  };
   const lead = (): Deck => decks[STEMS.filter((s) => assign[s] === 1).length > 2 ? 1 : 0];
   const beatLen = (d: Deck) => 60 / d.bpm;
 
@@ -192,7 +218,7 @@ export async function showDecks(): Promise<void> {
     if (!d.buf) return;
     const when = Math.max(ctx.currentTime + 0.02, heard - LAT);
     const at = Math.max(0, Math.min(from, d.buf.duration - 0.05));
-    d.node.schedule({ output: when, active: true, input: at, rate: d.rate, semitones: d.semi });
+    d.node.schedule({ output: when, active: true, input: at, rate: d.rate, semitones: d.semi, loopStart: d.loop?.[0] ?? 0, loopEnd: d.loop?.[1] ?? 0 });
     d.playing = true;
     d.startCtx = when;
     d.startPos = at;
@@ -417,6 +443,30 @@ export async function showDecks(): Promise<void> {
       if (v >= 40 && v <= 240) d.bpm = v;
       refresh();
     } }) as HTMLInputElement;
+    const loopBtn = h('button', { class: 'dk-chip', title: 'Loop the four bars from the current bar', onclick: () => {
+      if (!d.buf) return;
+      const p = pos(d);
+      if (d.loop) d.loop = null;
+      else {
+        const bar = 4 * beatLen(d);
+        const from = d.firstBeat + Math.floor((p - d.firstBeat) / bar) * bar;
+        d.loop = [Math.max(0, from), Math.max(0, from) + 4 * bar];
+      }
+      if (d.playing) start(d, p);
+      refresh();
+    } });
+    const echoBtn = h('button', { class: 'dk-chip', title: 'Echo, half a beat long', onclick: () => {
+      const on = d.echo.gain.value < 0.01;
+      d.delay.delayTime.value = Math.min(2, beatLen(d) / d.rate / 2);
+      d.echo.gain.setTargetAtTime(on ? 0.45 : 0, ctx.currentTime, 0.02);
+      echoBtn.classList.toggle('dk-on', on);
+    } });
+    // one knob: left of centre closes a low-pass, right opens a high-pass
+    const filter = h('input', { class: 'dk-filter', type: 'range', min: '-1', max: '1', step: '0.01', value: '0', title: 'Filter: left muffles, right thins, centre is off (double-click to reset)', oninput: () => {
+      const v = Number(filter.value);
+      d.lp.frequency.setTargetAtTime(v < -0.02 ? 20000 * Math.pow(0.008, -v) : 20000, ctx.currentTime, 0.02);
+      d.hp.frequency.setTargetAtTime(v > 0.02 ? 20 * Math.pow(400, v) : 20, ctx.currentTime, 0.02);
+    }, ondblclick: () => ((filter.value = '0'), filter.dispatchEvent(new Event('input'))) }) as HTMLInputElement;
     const grid = (beats: number) => () => {
       d.firstBeat += beats * beatLen(d);
       refresh();
@@ -431,26 +481,53 @@ export async function showDecks(): Promise<void> {
         h('button', { class: 'dk-chip', title: 'Double the tempo', onclick: () => ((d.bpm = Math.round(d.bpm * 20) / 10), refresh()) }, '×2'),
         h('button', { class: 'dk-chip', title: 'Move the bar lines one beat earlier', onclick: grid(-1) }, '◂ grid'),
         h('button', { class: 'dk-chip', title: 'Move the bar lines one beat later', onclick: grid(1) }, 'grid ▸')),
+      h('div', { class: 'dk-row dk-small' },
+        h('button', { class: 'dk-chip', title: 'Remember this spot', onclick: () => ((d.cue = pos(d)), toast(`Cue set at ${fmt(d.cue)}`, 'ok')) }, 'Set cue'),
+        h('button', { class: 'dk-chip', title: 'Jump to the remembered spot', onclick: () => { if (!d.buf) return; if (d.playing) start(d, d.cue); else d.startPos = d.cue; refresh(); } }, 'To cue'),
+        loopBtn,
+        echoBtn,
+        h('span', { class: 'dk-lbl' }, 'Filter'),
+        filter,
+        h('button', { class: 'dk-chip', title: 'Package this song’s four parts for the Stem2 speaker and copy them on if it is plugged in as a USB drive', onclick: () => void sendStem2(d) }, '→ Stem2')),
       status);
-    return { el, title, sub, status, disc, bpm };
+    return { el, title, sub, status, disc, bpm, loopBtn };
   };
   const ui = [deckEl(decks[0]), deckEl(decks[1])];
   const pads = {} as Record<StemName, HTMLButtonElement>;
   for (const s of STEMS) pads[s] = h('button', { class: `dk-pad dk-pad-${s}`, onclick: () => padClick(s) }) as HTMLButtonElement;
+  const levels = h('div', { class: 'dk-levels' }, ...STEMS.map((st) => {
+    const sl = h('input', { type: 'range', min: '0', max: '1.5', step: '0.01', value: '1', title: `${LABEL[st]} volume (double-click to reset)`, oninput: () => decks.forEach((d) => d.trim[st].gain.setTargetAtTime(Number(sl.value), ctx.currentTime, 0.02)), ondblclick: () => ((sl.value = '1'), sl.dispatchEvent(new Event('input'))) }) as HTMLInputElement;
+    return h('label', null, LABEL[st], sl);
+  }));
+  const NOTE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const sendStem2 = async (d: Deck) => {
+    const app = desktop();
+    if (!app?.stem2Send) return void toast('Sending to a Stem2 needs the desktop app.', 'info');
+    if (!d.stems || !d.buf) return void toast('This song needs its parts separated first.', 'info');
+    d.status = 'Packaging for Stem2…';
+    refreshStatus();
+    const wav = async (b: AudioBuffer) => new Uint8Array(await encodeWav(b).arrayBuffer());
+    const bar = 4 * beatLen(d);
+    const bars: number[] = [];
+    for (let t = d.firstBeat; t < d.buf.duration; t += bar) bars.push(Math.round(t * 1000) / 1000);
+    const r = await app.stem2Send({ stems: { other: await wav(d.stems.other), vocals: await wav(d.stems.vocals), bass: await wav(d.stems.bass), drums: await wav(d.stems.drums) }, title: d.name, artist: 'Beatmaker', bpm: d.bpm, bars, key: NOTE[d.keyPc], tonality: d.minor ? 'minor' : 'major' });
+    d.status = r.error && !r.folder ? `Stem2: ${r.error}` : r.copied ? `On the Stem2 (${r.drive}). Eject it, unplug, and it appears after it restarts.` : `Packaged, not copied${r.error ? ` (${r.error})` : ': no Stem2 drive found. Put it in USB mode from Stem Desktop and press again'}. Files: ${r.folder}`;
+    refreshStatus();
+  };
   const keyBtn = h('button', { class: 'dk-chip', title: 'Shift the incoming song into the playing song’s key (applies when it is next brought in)', onclick: () => ((keyMatch = !keyMatch), refresh()) });
   const syncBtn = h('button', { class: 'dk-chip', title: 'Play the incoming song at the playing song’s tempo (its pitch is kept)', onclick: () => ((sync = !sync), refresh()) });
   const recBtn = h('button', { class: 'dk-chip', onclick: () => {
-    if (rec) return void rec.stop();
-    const chunks: Blob[] = [];
-    const r = new MediaRecorder(tap.stream);
-    r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    r.onstop = () => {
-      rec = null;
-      refresh();
-      void downloadBlob(new Blob(chunks, { type: r.mimeType }), 'Two-deck mix.webm');
-    };
-    r.start();
-    rec = r;
+    if (!recChunks) recChunks = [];
+    else {
+      const chunks = recChunks;
+      recChunks = null;
+      const n = chunks.length * 4096;
+      if (n) {
+        const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+        chunks.forEach((c, i) => (buf.getChannelData(0).set(c[0], i * 4096), buf.getChannelData(1).set(c[1], i * 4096)));
+        void downloadBlob(encodeWav(buf), 'Two-deck mix.wav');
+      }
+    }
     refresh();
   } });
   const transBtn = h('button', { class: 'dk-chip dk-trans', onclick: transition }, '⇄ Transition');
@@ -474,13 +551,13 @@ export async function showDecks(): Promise<void> {
   const close = () => {
     cancelAnimationFrame(raf);
     decks.forEach((d) => (d.abort?.abort(), stopSources(d)));
-    rec?.stop();
+    recTap.disconnect();
     void ctx.close();
     root.remove();
   };
   const root = h('div', { class: 'dk' },
     h('div', { class: 'dk-top' }, recBtn, h('div', { class: 'dk-head' }, 'Two-deck mixer'), keyBtn, syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
-    h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn, plan), ui[1].el),
+    h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn, plan, levels), ui[1].el),
     h('div', { class: 'dk-waves' }, canvases[0], canvases[1]),
     h('div', { class: 'dk-bar' }, playAll, clock));
   document.body.append(root);
@@ -494,6 +571,8 @@ export async function showDecks(): Promise<void> {
       u.disc.textContent = !d.buf ? '+' : d.playing ? '❚❚' : '▶';
       if (document.activeElement !== u.bpm) u.bpm.value = String(d.bpm);
       u.bpm.hidden = !d.buf;
+      u.loopBtn.textContent = d.loop ? 'Loop: on' : 'Loop 4 bars';
+      u.loopBtn.classList.toggle('dk-on', !!d.loop);
     });
     refreshStatus();
     for (const s of STEMS) {
@@ -503,7 +582,7 @@ export async function showDecks(): Promise<void> {
     }
     syncBtn.textContent = sync ? 'Sync: on' : 'Sync: off';
     keyBtn.textContent = keyMatch ? 'Key: match' : 'Key: original';
-    recBtn.textContent = rec ? '■ Stop recording' : '● Record';
+    recBtn.textContent = recChunks ? '■ Stop and save WAV' : '● Record';
     transBtn.toggleAttribute('disabled', busy);
     playAll.textContent = decks.some((d) => d.playing) ? '❚❚' : '▶';
   }

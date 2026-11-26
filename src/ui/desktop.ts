@@ -44,6 +44,8 @@ export interface DesktopApi {
   beatsReady(): Promise<boolean>;
   /** Beats and downbeats of a song (WAV bytes), in seconds. */
   beatsRun(wav: Uint8Array): Promise<{ beats?: number[]; downbeats?: number[]; error?: string }>;
+  /** Package four parts as a Stem2 track and, if the speaker is plugged in as a USB drive, copy it on (a new folder only). */
+  stem2Send(job: { stems: Record<string, Uint8Array>; title: string; artist: string; bpm: number; bars: number[]; key: string; tonality: string }): Promise<{ folder?: string; copied?: boolean; drive?: string; seconds?: number; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

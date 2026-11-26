@@ -446,6 +446,61 @@ ipcMain.handle('beats-run', async (_e, wav) => {
   }
 });
 
+// Send a song's four parts to a Stem2 speaker: package them (vst/stem2_pack.py), and if the speaker is plugged in
+// as a USB drive, copy the new track onto it. Only ever adds one new folder; nothing on the device is replaced.
+function stem2Drive() {
+  for (const c of 'DEFGHIJKLMNOPQRSTUVWXYZ') {
+    const r = c + ':\\';
+    try {
+      if (fs.existsSync(r + '_tra_local\\.firmware') && fs.existsSync(r + '.track.inf') && fs.existsSync(r + '_track')) return r;
+    } catch {
+      /* drive not ready */
+    }
+  }
+  return null;
+}
+ipcMain.handle('stem2-send', async (_e, job) => {
+  const py = await findPython();
+  if (!py) return { error: 'Python was not found' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-stem2-'));
+  try {
+    const stems = {};
+    for (const [name, bytes] of Object.entries(job.stems)) {
+      stems[name] = path.join(tmp, name + '.wav');
+      await fsp.writeFile(stems[name], Buffer.from(bytes));
+    }
+    const out = path.join(app.getPath('userData'), 'stem2-packages');
+    await fsp.mkdir(out, { recursive: true });
+    const jobFile = path.join(tmp, 'job.json');
+    await fsp.writeFile(jobFile, JSON.stringify({ ...job, stems, out }));
+    const r = await run(py[0], [...py.slice(1), path.join(path.dirname(vstScript()), 'stem2_pack.py'), jobFile], { spawn: { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } } });
+    const line = r.out.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
+    if (r.code !== 0 || !line) return { error: 'Packaging failed: ' + r.out.trim().slice(-240) };
+    const info = JSON.parse(line.slice(7));
+    const drive = stem2Drive();
+    if (!drive) return { ...info, copied: false };
+    const dest = path.join(drive, ...info.device_folder.split('/'));
+    if (fs.existsSync(dest)) return { ...info, copied: false, error: 'That track id is already on the speaker' };
+    const stage = path.join(path.dirname(dest), '.beatmaker-staging');
+    await fsp.mkdir(stage, { recursive: true });
+    const sha = async (f) => crypto.createHash('sha256').update(await fsp.readFile(f)).digest('hex');
+    for (const f of ['meta.dat', 'combi.mp4']) {
+      await fsp.copyFile(path.join(info.folder, f), path.join(stage, f));
+      if ((await sha(path.join(stage, f))) !== (await sha(path.join(info.folder, f)))) {
+        await fsp.rm(stage, { recursive: true, force: true });
+        return { ...info, copied: false, error: 'The copy on the speaker did not match (' + f + ')' };
+      }
+    }
+    await fsp.rename(stage, dest);
+    log('stem2 copied', dest);
+    return { ...info, copied: true, drive };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
 // sounds most like a reference, by music-listening models.
 ipcMain.handle('ears-ready', () => {
