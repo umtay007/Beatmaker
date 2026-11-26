@@ -552,7 +552,7 @@ function spotifySave(t) {
   fs.writeFileSync(spotifyTokenFile(), safeStorage.encryptString(JSON.stringify(t)));
 }
 async function spotifyToken(params) {
-  const r = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
+  const r = await net.fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params).toString(), bypassCustomProtocolHandlers: true });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) throw new Error(j.error_description || j.error || 'Spotify refused the login (' + r.status + ')');
   return j;
@@ -620,7 +620,7 @@ ipcMain.handle('spotify-api', async (_e, method, apiPath, body) => {
   try {
     const token = await spotifyAccess();
     if (!token) return { error: 'Not logged in', status: 401 };
-    const r = await fetch('https://api.spotify.com/v1' + apiPath, { method, headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const r = await net.fetch('https://api.spotify.com/v1' + apiPath, { method, headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, bypassCustomProtocolHandlers: true });
     const text = await r.text();
     let data = null;
     try {
@@ -629,6 +629,61 @@ ipcMain.handle('spotify-api', async (_e, method, apiPath, body) => {
       /* no body */
     }
     return r.ok ? { data, status: r.status } : { error: (data && data.error && data.error.message) || 'Spotify said ' + r.status, status: r.status };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  }
+});
+
+// Beat finder: instrumentals from ccMixter with the licence each listing states. Downloads come only from
+// ccmixter.org and are kept in userData/beats/<id> with the licence record beside them.
+/** GET from ccmixter.org. Its old server answers with hundreds of kilobytes of headers, which fetch refuses: a plain request with a large header allowance takes them. */
+function ccGet(url, max = 80e6, referer = '') {
+  return new Promise((resolve, reject) => {
+    require('node:https')
+      .get(url, { maxHeaderSize: 8 << 20, headers: { 'User-Agent': 'Beatmaker', ...(referer ? { Referer: referer } : {}) }, timeout: 60000 }, (r) => {
+        if (r.statusCode !== 200) return void (r.resume(), reject(new Error('ccMixter said ' + r.statusCode)));
+        const parts = [];
+        let n = 0;
+        r.on('data', (d) => ((n += d.length) > max ? r.destroy(new Error('The file is too big')) : parts.push(d)));
+        r.on('end', () => resolve(Buffer.concat(parts)));
+        r.on('error', reject);
+      })
+      .on('timeout', function () { this.destroy(new Error('ccMixter did not answer in time')); })
+      .on('error', reject);
+  });
+}
+ipcMain.handle('beat-search', async (_e, tags) => {
+  try {
+    const clean = ['instrumental', ...tags.map((t) => String(t).toLowerCase().replace(/[^a-z0-9_]/g, '')).filter(Boolean)].slice(0, 5);
+    const listing = JSON.parse((await ccGet('https://ccmixter.org/api/query?f=json&sort=rank&limit=200&type=all&tags=' + clean.join('+'))).toString('utf8'));
+    const retrieved = new Date().toISOString().slice(0, 10);
+    const beats = listing
+      .map((x) => {
+        const file = (x.files || []).find((f) => /^https:\/\/ccmixter\.org\//.test(f.download_url || '') && /mp3/i.test(f.file_name || ''));
+        return file && x.license_url ? { id: String(x.upload_id), title: x.upload_name, producer: x.user_real_name || x.user_name, page: x.file_page_url, download: file.download_url, bpm: Number(x.upload_extra && x.upload_extra.bpm) || null, tags: (x.upload_extra && x.upload_extra.usertags) || '', licenseUrl: x.license_url, licenseName: x.license_name, retrieved } : null;
+      })
+      .filter(Boolean);
+    return { beats };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  }
+});
+ipcMain.handle('beat-fetch', async (_e, beat, record) => {
+  try {
+    const u = new URL(beat.download);
+    if (u.protocol !== 'https:' || u.hostname !== 'ccmixter.org') return { error: 'Not a ccMixter download' };
+    const dir = path.join(app.getPath('userData'), 'beats', String(beat.id).replace(/[^0-9a-z]/gi, ''));
+    const file = path.join(dir, 'beat.mp3');
+    if (!fs.existsSync(file)) {
+      // (The site serves a file only to a request that names the track's own page, as its download button does.)
+      const page = String(beat.page).startsWith('https://ccmixter.org/') ? beat.page : 'https://ccmixter.org/';
+      const bytes = await ccGet(u.href, 60e6, page);
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(file, bytes);
+    }
+    await fsp.writeFile(path.join(dir, 'LICENCE.txt'), String(record));
+    await fsp.writeFile(path.join(dir, 'listing.json'), JSON.stringify(beat, null, 2));
+    return { audio: await fsp.readFile(file), folder: dir };
   } catch (e) {
     return { error: String(e && e.message) };
   }

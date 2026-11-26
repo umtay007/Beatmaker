@@ -62,6 +62,10 @@ export interface DesktopApi {
     logout(): Promise<unknown>;
     api<T = unknown>(method: 'GET' | 'PUT' | 'POST', path: string, body?: unknown): Promise<{ data?: T; status?: number; error?: string }>;
   };
+  /** Instrumentals on ccMixter with these tags, each with the licence its listing states. */
+  beatSearch(tags: string[]): Promise<{ beats?: import('./beatfinder').Beat[]; error?: string }>;
+  /** Download a found beat (ccmixter.org only) and save its licence record beside it. */
+  beatFetch(beat: import('./beatfinder').Beat, record: string): Promise<{ audio?: Uint8Array; folder?: string; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */
