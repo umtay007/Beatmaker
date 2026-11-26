@@ -12,6 +12,7 @@ import { detectAudioKey } from '../audio/key';
 import { separateStems, type Stems } from '../audio/separate';
 import { detectTempo, peakEnvelope } from '../audio/tempo';
 import { encodeWav } from '../audio/render';
+import { fitBeats } from '../audio/tempomap';
 import { desktop } from './desktop';
 import { downloadBlob, h, pickFile, toast } from './dom';
 
@@ -73,17 +74,7 @@ const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
 export function gridFrom(beats: number[], downbeats: number[]): { bpm: number; firstBeat: number; gridNote: string } | null {
   if (beats.length < 8) return null;
   const rough = median(beats.slice(1).map((t, i) => t - beats[i]));
-  // A line through the beats against their beat numbers (numbered by rounding, so a missed beat leaves a gap
-  // instead of shifting the count), fitted twice: the second pass numbers them with the better tempo.
-  let beat = rough;
-  let origin = beats[0];
-  for (let pass = 0; pass < 2; pass++) {
-    const idx = beats.map((t) => Math.round((t - origin) / beat));
-    const mi = idx.reduce((x, v) => x + v, 0) / idx.length;
-    const mt = beats.reduce((x, v) => x + v, 0) / beats.length;
-    beat = idx.reduce((x, v, i) => x + (v - mi) * (beats[i] - mt), 0) / idx.reduce((x, v) => x + (v - mi) ** 2, 0);
-    origin = mt - mi * beat;
-  }
+  const { beat, origin } = fitBeats(beats, rough);
   const bpm = Math.round((60 / beat) * 10) / 10;
   const barGap = downbeats.length >= 3 ? median(downbeats.slice(1).map((t, i) => t - downbeats[i])) : 0;
   if (Math.abs(barGap / beat - 4) < 0.3) {

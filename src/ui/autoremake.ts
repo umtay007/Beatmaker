@@ -14,6 +14,7 @@ import { transcribePitches, drumGrid } from '../audio/transcribe';
 import { drumNotes, holdNotes, splitParts } from '../audio/parts';
 import { transcribeBass } from '../audio/bassline';
 import { detectTempo } from '../audio/tempo';
+import { tempoMap } from '../audio/tempomap';
 import { detectSections } from '../audio/structure';
 import { Attacks, compareRemake, describeComparison, partScore, type Role } from '../audio/compare';
 import { struckParts } from './ymt3parts';
@@ -99,7 +100,20 @@ export async function autoRemake(
   const grid = phase('grid', 'Finding the tempo, first beat and key…');
   grid(0);
   await pause();
-  const tempo = detectTempo(buf);
+  let tempo = detectTempo(buf);
+  // Where the beat tracker is set up (desktop, --sep), its beats give a tempo map: songs that change tempo (an
+  // intro at one speed, the beat at another) get every stretch on its own grid instead of one tempo for all.
+  let map: ReturnType<typeof tempoMap> = null;
+  const tracker = desktop();
+  if (tracker?.beatsRun && (await tracker.beatsReady())) {
+    try {
+      const r = await tracker.beatsRun(new Uint8Array(await encodeWav(buf).arrayBuffer()));
+      map = tempoMap(r.beats ?? [], r.downbeats ?? []);
+      if (map) tempo = { ...tempo, bpm: map.bpm, firstBeat: map.firstBeat };
+    } catch (e) {
+      console.warn('beat tracker failed', e);
+    }
+  }
   const key = detectAudioKey(buf);
   const colors = actions.palette();
   const name = engine.backingName.replace(/\.[a-z0-9]+$/i, '') || 'Song';
@@ -107,7 +121,7 @@ export async function autoRemake(
     name: `${name} (remake)`,
     artist: '',
     bpm: tempo.bpm,
-    tempoChanges: [],
+    tempoChanges: map?.changes ?? [],
     swing: 0,
     bars: 4,
     key: key.key,
@@ -119,7 +133,7 @@ export async function autoRemake(
     synthsWithAudio: true,
   };
   song.bars = Math.min(MAX_BARS, Math.max(4, Math.ceil(new Timeline(song).secToTick(buf.duration + song.audioOffset) / BAR)));
-  report.push(`${tempo.bpm} BPM, ${song.bars} bars${song.tuning ? `, tuned ${song.tuning > 0 ? '+' : ''}${song.tuning} cents` : ''}`);
+  report.push(`${map && map.stretches.length > 1 ? 'The tempo changes: ' + map.stretches.map((x) => `${Math.round(x.bpm * 10) / 10} BPM from ${Math.floor(x.from / 60)}:${String(Math.floor(x.from % 60)).padStart(2, '0')}`).join(', ') : tempo.bpm + ' BPM'}, ${song.bars} bars${song.tuning ? `, tuned ${song.tuning > 0 ? '+' : ''}${song.tuning} cents` : ''}`);
   aborted(signal);
 
   // 2. Parts
