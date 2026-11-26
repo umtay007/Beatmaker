@@ -29,7 +29,7 @@ NHARM = 16
 KINDS = 2
 # a note is on where it reaches this much of the frame's loudest pitch and of the song's loudest, and stays on
 # until it falls to a third of that; shorter notes and gaps (frames of 23 ms) are dropped and closed
-REL, GLOB, HYST, MINLEN, GAP = 0.3, 0.1, 3.0, 8, 6
+REL, GLOB, HYST, MINLEN, GAP = 0.2, 0.06, 3.0, 6, 5
 WIN = 0.5 - 0.5 * np.cos(2 * np.pi * np.arange(N) / (N - 1))
 
 
