@@ -424,6 +424,23 @@ export const EXTRA: ExtraDef[] = [
 
   // Synth, vocal and wind
   {
+    id: 'cowbell',
+    label: 'Cowbell (pitched)',
+    group: 'Bell',
+    octave: 5,
+    build(ctx, out, a) {
+      const v = new VoiceKit(ctx, out, a, 0.05);
+      const mix = v.gain(1);
+      v.osc('square', 1).connect(mix);
+      v.osc('square', 1.4815).connect(mix);
+      const f = v.filter('bandpass', v.f * 1.9, 1.6);
+      const amp = v.gain(0);
+      v.adsr(amp.gain, 0.001, 0.22, 0, a.vel * 0.42);
+      mix.connect(f).connect(amp).connect(v.rel);
+      return v.finish();
+    },
+  },
+  {
     id: 'stab',
     label: 'Chord Stab',
     group: 'Lead',

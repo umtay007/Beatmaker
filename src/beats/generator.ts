@@ -68,6 +68,14 @@ type ChordStyle = 'sustain' | 'halves' | 'stabs' | 'lofi' | 'arp' | 'clave' | 'o
 type BassStyle = '808' | 'follow' | 'offbeat' | 'rolling' | 'pulse' | 'root' | 'clave';
 type MelodyStyle = 'bells' | 'sparse' | 'lead' | 'arp' | 'hook' | 'dark';
 
+export interface Palette {
+  name: string;
+  chord: string;
+  bass: string;
+  melody: string;
+  extra?: string;
+}
+
 export interface GenreDef {
   id: string;
   label: string;
@@ -78,10 +86,15 @@ export interface GenreDef {
   progressions: number[][];
   seventh: number;
   ninth: number;
-  chord: { style: ChordStyle; inst: string[]; octave: number };
-  bass: { style: BassStyle; inst: string[] };
-  melody: { style: MelodyStyle; inst: string[]; octave: number; pentatonic: boolean };
-  extra?: { style: ChordStyle; inst: string[]; octave: number; name: string };
+  chord: { style: ChordStyle; inst?: string[]; octave: number };
+  bass: { style: BassStyle; inst?: string[] };
+  melody: { style: MelodyStyle; inst?: string[]; octave: number; pentatonic: boolean };
+  extra?: { style: ChordStyle; inst?: string[]; octave: number; name: string };
+  /**
+   * Sounds that belong together, picked as a set: one palette per beat. (Picking each part's sound on its own
+   * from a long list gave trap beats with a violin, a nylon guitar and a pad, which is no genre at all.)
+   */
+  palettes: Palette[];
   kickPattern: string[];
   drums(c: BarCtx, t: number, kick: string): Hit[];
 }
@@ -102,6 +115,7 @@ function fillEnd(c: BarCtx, t: number, style: 'snare' | 'toms' | 'hats'): Hit[] 
 export const GENRES: GenreDef[] = [
   {
     id: 'trap',
+    palettes: [{ name: 'Dark', chord: 'darkstrings', bass: 'bass808', melody: 'bell' }, { name: 'Melodic', chord: 'spiano', bass: 'bass808p', melody: 'sflute' }, { name: 'Eerie', chord: 'choir', bass: 'bass808', melody: 'musicbox' }, { name: 'Guitar', chord: 'sguitar', bass: 'bass808p', melody: 'pluck' }, { name: 'Synth', chord: 'pad', bass: 'bass808', melody: 'pluck' }],
     label: 'Trap',
     bpm: [136, 150],
     swing: [0, 0.05],
@@ -156,6 +170,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'boombap',
+    palettes: [{ name: 'Jazz keys', chord: 'epiano', bass: 'scontrabass', melody: 'ssax' }, { name: 'Piano loop', chord: 'spiano', bass: 'sebass', melody: 'vibes' }, { name: 'Dusty', chord: 'wurli', bass: 'deepbass', melody: 'flute' }, { name: 'Soul', chord: 'sharp', bass: 'scontrabass', melody: 'strumpet' }],
     label: 'Boom Bap',
     bpm: [84, 94],
     swing: [0.3, 0.45],
@@ -190,6 +205,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'lofi',
+    palettes: [{ name: 'Rhodes', chord: 'epiano', bass: 'sub', melody: 'vibes', extra: 'pad' }, { name: 'Wurli', chord: 'wurli', bass: 'scontrabass', melody: 'kalimba', extra: 'choir' }, { name: 'Nylon', chord: 'snylon', bass: 'deepbass', melody: 'glock', extra: 'pad' }, { name: 'Piano', chord: 'spiano', bass: 'sub', melody: 'musicbox', extra: 'pad' }],
     label: 'Lo-Fi',
     bpm: [72, 86],
     swing: [0.4, 0.55],
@@ -222,6 +238,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'house',
+    palettes: [{ name: 'Organ', chord: 'organ', bass: 'deepbass', melody: 'pluck', extra: 'strings' }, { name: 'Piano', chord: 'spiano', bass: 'sub', melody: 'vocalchop', extra: 'pad' }, { name: 'Stabs', chord: 'stab', bass: 'fmbass', melody: 'bell', extra: 'strings' }, { name: 'Acid', chord: 'supersaw', bass: 'acid', melody: 'marimba', extra: 'pad' }],
     label: 'House',
     bpm: [120, 126],
     swing: [0.05, 0.15],
@@ -256,8 +273,9 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'drill',
+    palettes: [{ name: 'Strings', chord: 'strings', bass: 'bass808d', melody: 'piano' }, { name: 'Choir', chord: 'choir', bass: 'bass808d', melody: 'bell' }, { name: 'Dark', chord: 'darkstrings', bass: 'bass808d', melody: 'pizz' }, { name: 'Violin', chord: 'pad', bass: 'bass808d', melody: 'sviolin' }],
     label: 'UK Drill',
-    bpm: [140, 146],
+    bpm: [138, 144],
     swing: [0, 0],
     kit: 'trap',
     scales: ['harmonic', 'minor'],
@@ -278,9 +296,9 @@ export const GENRES: GenreDef[] = [
       const hits: Hit[] = [];
       if (c.energy !== 'intro') {
         hits.push(...pat(kick, K, t));
-        hits.push(...pat('........x.......', SN, t));
-        if (c.bar % 2 === 1) hits.push(...pat('..............x.', SN, t, 0.9));
-        else hits.push(...pat('...g............', SN, t));
+        // the two-bar lurch: snare on beat 3 of the first bar, held back to beat 4 in the second
+        if (c.bar % 2 === 0) hits.push(...pat('...g....x.......', SN, t));
+        else hits.push(...pat('............x...', SN, t));
       }
       // Triplet-feel hats (8th-note triplets with gaps).
       const trip = PPQ / 3;
@@ -299,6 +317,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'reggaeton',
+    palettes: [{ name: 'Pluck', chord: 'pluck', bass: 'bass808', melody: 'lead' }, { name: 'Nylon', chord: 'snylon', bass: 'deepbass', melody: 'whistle' }, { name: 'Marimba', chord: 'marimba', bass: 'bass808', melody: 'steeldrum' }, { name: 'Guitar', chord: 'sguitar', bass: 'deepbass', melody: 'flute' }],
     label: 'Reggaeton',
     bpm: [90, 98],
     swing: [0, 0.05],
@@ -330,6 +349,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'afro',
+    palettes: [{ name: 'Amapiano keys', chord: 'epiano', bass: 'logdrum', melody: 'kalimba' }, { name: 'Guitar', chord: 'sguitar', bass: 'sebass', melody: 'flute' }, { name: 'Marimba', chord: 'marimba', bass: 'logdrum', melody: 'steeldrum' }, { name: 'Organ', chord: 'organ', bass: 'deepbass', melody: 'panflute' }],
     label: 'Afrobeats',
     bpm: [100, 112],
     swing: [0.1, 0.25],
@@ -363,6 +383,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'dnb',
+    palettes: [{ name: 'Liquid', chord: 'pad', bass: 'reese', melody: 'pluck' }, { name: 'Strings', chord: 'strings', bass: 'reese', melody: 'vocalchop' }, { name: 'Wobble', chord: 'pad', bass: 'wobble', melody: 'bell' }],
     label: 'Drum & Bass',
     bpm: [170, 176],
     swing: [0, 0.05],
@@ -396,6 +417,7 @@ export const GENRES: GenreDef[] = [
   },
   {
     id: 'synthwave',
+    palettes: [{ name: 'Classic', chord: 'pad', bass: 'fmbass', melody: 'lead', extra: 'chip' }, { name: 'Saw', chord: 'supersaw', bass: 'deepbass', melody: 'lead', extra: 'pluck' }, { name: 'Chip', chord: 'pad', bass: 'sub', melody: 'chip', extra: 'pluck' }],
     label: 'Synthwave',
     bpm: [96, 112],
     swing: [0, 0],
@@ -422,6 +444,151 @@ export const GENRES: GenreDef[] = [
       hits.push(...pat('xoxoxoxoxoxoxoxo', HH, t, 0.5));
       if (c.phraseEnd && chance(r, 0.7)) hits.push(...fillEnd(c, t, 'toms'));
       if (c.phraseStart && c.bar > 0) hits.push({ pitch: CR, tick: t, vel: 0.7 });
+      return hits;
+    },
+  },
+  {
+    // Plugg: sparse and dreamy. The 808 is the kick, a muffled clap sits on beat 3, rimshots and maracas carry the
+    // groove, hats are few; simple chords on soft keys with a bell on top.
+    id: 'plugg',
+    palettes: [{ name: 'Rhodes', chord: 'epiano', bass: 'bass808', melody: 'bell' }, { name: 'Airy', chord: 'pad', bass: 'bass808p', melody: 'glock' }, { name: 'Wurli', chord: 'wurli', bass: 'bass808', melody: 'musicbox' }, { name: 'Vibes', chord: 'vibes', bass: 'bass808p', melody: 'pluck' }],
+    label: 'Plugg',
+    bpm: [136, 150],
+    swing: [0, 0.04],
+    kit: 'trap',
+    scales: ['major', 'dorian', 'minor'],
+    progressions: [
+      [0, 3, 0, 3],
+      [3, 4, 2, 5],
+      [0, 5, 3, 4],
+      [1, 4, 0, 0],
+    ],
+    seventh: 0.9,
+    ninth: 0.35,
+    chord: { style: 'sustain', octave: 4 },
+    bass: { style: '808' },
+    melody: { style: 'bells', octave: 5, pentatonic: true },
+    kickPattern: ['x.........x.....', 'x.....x.........', 'x..........x....'],
+    drums(c, t, kick) {
+      const r = c.rng;
+      const hits: Hit[] = [];
+      if (c.energy !== 'intro') {
+        hits.push(...pat(kick, K, t, 0.75));
+        hits.push(...pat('........x.......', CP, t, 0.7));
+      }
+      hits.push(...pat(pick(r, ['..x...x.....x...', '...x......x..x..', '..x......x....x.']), RIM, t, 0.7));
+      hits.push(...pat('o.o.o.o.o.o.o.o.', SHK, t, 0.45));
+      if (chance(r, 0.5)) hits.push(...pat(pick(r, ['x...x...x...x...', '....x.......x.x.']), HH, t, 0.5));
+      if (c.phraseEnd && chance(r, 0.5)) hits.push(...pat('..............o.', SN, t));
+      if (c.phraseStart) hits.push({ pitch: CR, tick: t, vel: 0.6 });
+      return hits;
+    },
+  },
+  {
+    // Rage: a loud, bright synth lead over held saw chords, a distorted 808 and busy hats.
+    id: 'rage',
+    palettes: [{ name: 'Saw', chord: 'supersaw', bass: 'bass808d', melody: 'lead' }, { name: 'Stabs', chord: 'stab', bass: 'bass808d', melody: 'supersaw' }, { name: 'Arcade', chord: 'supersaw', bass: 'bass808d', melody: 'chip' }],
+    label: 'Rage',
+    bpm: [142, 160],
+    swing: [0, 0],
+    kit: 'trap',
+    scales: ['minor', 'phrygian'],
+    progressions: [
+      [0, 5, 0, 5],
+      [0, 5, 6, 4],
+      [0, 0, 5, 6],
+      [0, 3, 5, 6],
+    ],
+    seventh: 0.1,
+    ninth: 0,
+    chord: { style: 'sustain', octave: 4 },
+    bass: { style: '808' },
+    melody: { style: 'lead', octave: 5, pentatonic: false },
+    kickPattern: ['x.....x...x.....', 'x..x......x..x..', 'x.........x.x...'],
+    drums(c, t, kick) {
+      const r = c.rng;
+      const hits: Hit[] = [];
+      if (c.energy !== 'intro') {
+        hits.push(...pat(kick, K, t));
+        hits.push(...pat('........x.......', CP, t));
+        hits.push(...pat('........x.......', SN, t, 0.7));
+      }
+      for (let st = 0; st < 16; st++) hits.push({ pitch: HH, tick: t + st * STEP, vel: (st % 4 === 0 ? 0.85 : st % 2 === 0 ? 0.65 : 0.45) + range(r, -0.05, 0.05) });
+      if (c.energy === 'full') {
+        hits.push(...pat('......x.......x.', OH, t, 0.5));
+        if (chance(r, 0.6)) hits.push(...roll(HH, t + pick(r, [6, 14]) * STEP, pick(r, [3, 4, 6]), 2, 0.7));
+      }
+      if (c.phraseEnd && chance(r, 0.6)) hits.push(...fillEnd(c, t, 'snare'));
+      if (c.phraseStart) hits.push({ pitch: CR, tick: t, vel: 0.75 });
+      return hits;
+    },
+  },
+  {
+    // Phonk (drift): a pitched cowbell carries the tune in a minor or Phrygian key, over a hard, steady kick with
+    // off-beat claps, a distorted 808 on the roots and little harmony.
+    id: 'phonk',
+    palettes: [{ name: 'Choir', chord: 'choir', bass: 'bass808d', melody: 'cowbell' }, { name: 'Dark strings', chord: 'darkstrings', bass: 'bass808d', melody: 'cowbell' }, { name: 'Pad', chord: 'pad', bass: 'bass808s', melody: 'cowbell' }],
+    label: 'Phonk',
+    bpm: [130, 150],
+    swing: [0, 0],
+    kit: 'trap',
+    scales: ['phrygian', 'harmonic', 'minor'],
+    progressions: [
+      [0, 0, 1, 0],
+      [0, 5, 0, 1],
+      [0, 0, 5, 4],
+    ],
+    seventh: 0,
+    ninth: 0,
+    chord: { style: 'sustain', octave: 3 },
+    bass: { style: '808' },
+    melody: { style: 'hook', octave: 5, pentatonic: false },
+    kickPattern: ['x...x...x...x...', 'x...x...x..xx...'],
+    drums(c, t, kick) {
+      const r = c.rng;
+      const hits: Hit[] = [];
+      if (c.energy !== 'intro') {
+        hits.push(...pat(kick, K, t));
+        hits.push(...pat('....x.......x...', CP, t, 0.9));
+      }
+      hits.push(...pat('..x...x...x...x.', OH, t, 0.45));
+      hits.push(...pat('xoxoxoxoxoxoxoxo', HH, t, 0.5));
+      if (c.energy === 'full' && chance(r, 0.4)) hits.push(...roll(HH, t + 14 * STEP, 4, 2, 0.65));
+      if (c.phraseEnd && chance(r, 0.5)) hits.push(...fillEnd(c, t, 'snare'));
+      if (c.phraseStart) hits.push({ pitch: CR, tick: t, vel: 0.7 });
+      return hits;
+    },
+  },
+  {
+    // Jersey club: everything hangs on the five-kick bar (1, 2, 3, then two quick ones into the next bar), with
+    // claps on 2 and 4 and chopped vocal stabs for the tune.
+    id: 'jersey',
+    palettes: [{ name: 'Vocal chops', chord: 'stab', bass: 'sub', melody: 'vocalchop' }, { name: 'Keys', chord: 'epiano', bass: 'deepbass', melody: 'vocalchop' }, { name: 'Organ', chord: 'organ', bass: 'sub', melody: 'bell' }],
+    label: 'Jersey Club',
+    bpm: [132, 140],
+    swing: [0, 0],
+    kit: 'house',
+    scales: ['minor', 'dorian'],
+    progressions: [
+      [0, 5, 3, 4],
+      [0, 3, 0, 4],
+      [0, 6, 5, 6],
+    ],
+    seventh: 0.4,
+    ninth: 0.1,
+    chord: { style: 'stabs', octave: 4 },
+    bass: { style: 'follow' },
+    melody: { style: 'hook', octave: 5, pentatonic: true },
+    kickPattern: ['x...x...x..x..x.'],
+    drums(c, t, kick) {
+      const r = c.rng;
+      const hits: Hit[] = [];
+      hits.push(...pat(kick, K, t, c.energy === 'intro' ? 0.8 : 1));
+      if (c.energy !== 'intro') hits.push(...pat('....x.......x...', CP, t));
+      hits.push(...pat('..x...x...x...x.', HH, t, 0.6));
+      if (c.energy === 'full' && chance(r, 0.5)) hits.push(...pat('.......g.....g..', SN, t));
+      if (c.phraseEnd && chance(r, 0.7)) hits.push(...roll(SN, t + 12 * STEP, 6, 4, 0.7));
+      if (c.phraseStart && c.bar > 0) hits.push({ pitch: CR, tick: t, vel: 0.6 });
       return hits;
     },
   },
@@ -776,6 +943,7 @@ export function generateSong(opts: GenerateOptions): Song {
   const kickFor = (bar: number) => (bar % 2 === 0 ? kickA : kickB);
 
   const palette = opts.palette;
+  const sounds = pick(rng, g.palettes);
   const tracks: Track[] = [];
   let ci = 0;
 
@@ -805,29 +973,29 @@ export function generateSong(opts: GenerateOptions): Song {
     tracks.push(makeTrack('Drums', 'drums', g.kit, palette[ci++ % palette.length], notes, { volume: 1, reverb: 0.06 }));
   }
   if (parts.bass) {
-    const inst = pick(rng, g.bass.inst);
+    const inst = sounds.bass;
     const notes = bassPart(rng, g.bass.style, chords, bars, kickFor, (b) => energy(b) !== 'intro', scale);
     const is808 = inst.startsWith('bass808');
     tracks.push(makeTrack(is808 ? '808' : 'Bass', 'synth', inst, palette[ci++ % palette.length], notes, { volume: is808 ? 0.8 : 0.75, reverb: 0 }));
   }
   if (parts.chords) {
-    const inst = pick(rng, g.chord.inst);
+    const inst = sounds.chord;
     const notes = chordPart(rng, g.chord.style, chords, bars, () => true);
     tracks.push(makeTrack('Chords', 'synth', inst, palette[ci++ % palette.length], notes, { volume: 0.7, reverb: 0.3 }));
   }
   if (parts.melody) {
-    const inst = pick(rng, g.melody.inst);
+    const inst = sounds.melody;
     const notes = melodyPart(rng, g.melody.style, chords, bars, (b) => b >= Math.min(introBars, 2), key, scale, g.melody.octave, g.melody.pentatonic);
     tracks.push(makeTrack('Melody', 'synth', inst, palette[ci++ % palette.length], notes, { volume: 0.72, reverb: 0.28, pan: 0.1 }));
   }
-  if (parts.extra && g.extra) {
-    const inst = pick(rng, g.extra.inst);
+  if (parts.extra && g.extra && sounds.extra) {
+    const inst = sounds.extra;
     const notes = chordPart(rng, g.extra.style, chords, bars, (b) => b >= introBars);
     tracks.push(makeTrack(g.extra.name, 'synth', inst, palette[ci++ % palette.length], notes, { volume: 0.5, reverb: 0.4, pan: -0.15 }));
   }
 
   return {
-    name: `${g.label} Beat`,
+    name: `${g.label} Beat (${sounds.name})`,
     artist: '',
     bpm,
     tempoChanges: [],

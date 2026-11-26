@@ -25,6 +25,9 @@ import { TracksPanel } from './ui/tracks';
 import { desktop } from './ui/desktop';
 import { showRemake } from './ui/remakeui';
 import { showDecks } from './ui/decks';
+import { GENRES, generateSong } from './beats/generator';
+import { INSTRUMENTS } from './audio/instruments';
+import { KIT_BY_ID } from './audio/drums';
 import { showVocalEngineer } from './ui/vocalengineer';
 import { matchLocal, showSpotify } from './ui/spotifyui';
 import { fitsUse, licenceRecord, licenseTerms, showBeatFinder } from './ui/beatfinder';
@@ -276,4 +279,4 @@ if (app_) {
 }
 
 // Expose for debugging / automated tests.
-(window as unknown as Record<string, unknown>).beatmaker = { showBeatFinder, licenseTerms, fitsUse, licenceRecord, showDecks, showSpotify, matchLocal, showVocalEngineer: () => showVocalEngineer(store, actions.palette()), store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, partScore, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches, ltas, TONE_BANDS, fitTone };
+(window as unknown as Record<string, unknown>).beatmaker = { generateSong, GENRES, INSTRUMENTS, KIT_BY_ID, showBeatFinder, licenseTerms, fitsUse, licenceRecord, showDecks, showSpotify, matchLocal, showVocalEngineer: () => showVocalEngineer(store, actions.palette()), store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, partScore, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches, ltas, TONE_BANDS, fitTone };
