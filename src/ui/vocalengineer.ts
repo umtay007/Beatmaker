@@ -6,7 +6,7 @@
 import { encodeWav } from '../audio/render';
 import type { Store } from '../core/store';
 import { desktop } from './desktop';
-import { downloadBlob, h, modal, pickFile, toast } from './dom';
+import { askText, downloadBlob, h, modal, pickFile, toast } from './dom';
 import { vocalTrack } from './vocaltrack';
 
 const DIRECTIONS: [string, string][] = [
@@ -28,6 +28,26 @@ export function showVocalEngineer(store: Store, colors: string[]): void {
   const vocalBtn = h('button', { class: 'btn btn-ghost', onclick: async () => ((files.vocal = (await pickFile('audio/*,.wav,.mp3,.flac,.m4a')) ?? files.vocal), show()) });
   const beatBtn = h('button', { class: 'btn btn-ghost', onclick: async () => ((files.beat = (await pickFile('audio/*,.wav,.mp3,.flac,.m4a')) ?? files.beat), show()) });
   const dirSel = h('select', { class: 've-select', onchange: () => (direction = dirSel.value) }, ...DIRECTIONS.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
+  // Presets: targets measured from a reference vocal (yours to supply). "None" uses the direction above.
+  let preset = '';
+  const presetSel = h('select', { class: 've-select', onchange: () => (preset = presetSel.value) }) as HTMLSelectElement;
+  const loadPresets = async () => {
+    const list = (await app?.vocalPresets?.()) ?? [];
+    presetSel.replaceChildren(h('option', { value: '' }, 'No preset (use the direction)'), ...list.map((p) => h('option', { value: p.name, title: `${p.source} · made ${p.made}` }, p.name)));
+    presetSel.value = preset;
+  };
+  const refBtn = h('button', { class: 'btn btn-ghost', title: 'Measure a finished vocal you have (an acapella or a separated vocals stem) and aim your take at it', onclick: async () => {
+    if (!app?.vocalPresetMake) return;
+    const f = await pickFile('audio/*,.wav,.mp3,.flac,.m4a');
+    if (!f) return;
+    const name = await askText('Name this preset (e.g. the artist and song)', f.name.replace(/\.[^.]+$/, ''));
+    if (!name) return;
+    status.textContent = 'Measuring the reference vocal…';
+    const r = await app.vocalPresetMake({ reference: await wavOf(f), name, source: `measured from the file "${f.name}"` });
+    status.textContent = r.error ? `Couldn't make the preset: ${r.error}` : `Preset "${r.preset!.name}" saved. It holds what that vocal measures as (tone, dynamics, tuning, width), not the settings used to make it.`;
+    if (r.preset) preset = r.preset.name;
+    await loadPresets();
+  } }, 'Make a preset from a reference vocal…');
   const tune = h('input', { type: 'checkbox', onchange: () => (retune = tune.checked) }) as HTMLInputElement;
   const status = h('div', { class: 've-status' });
   const report = h('div', { class: 've-report' });
@@ -56,7 +76,7 @@ export function showVocalEngineer(store: Store, colors: string[]): void {
     players.replaceChildren();
     keep.replaceChildren();
     try {
-      const r = await app.vocalEngineer({ vocal: await wavOf(files.vocal), beat: await wavOf(files.beat), direction, retune });
+      const r = await app.vocalEngineer({ vocal: await wavOf(files.vocal), beat: await wavOf(files.beat), direction, retune, preset: preset || undefined });
       if (r.error || !r.report) throw new Error(r.error ?? 'nothing came back');
       status.textContent = '';
       const a = r.report.analysis;
@@ -74,7 +94,7 @@ export function showVocalEngineer(store: Store, colors: string[]): void {
         urls.push(url);
         return h('label', null, label, h('audio', { controls: true, src: url }));
       };
-      players.append(player('Before (raw vocal over the beat)', r.before!), player(`After (${direction}), same loudness`, r.after!));
+      players.append(player('Before (raw vocal over the beat)', r.before!), player(`After (${preset || direction}), same loudness`, r.after!));
       const ctx = new AudioContext();
       const pb = r.processed!;
       const processed = await ctx.decodeAudioData(pb.buffer.slice(pb.byteOffset, pb.byteOffset + pb.byteLength) as ArrayBuffer);
@@ -100,9 +120,11 @@ export function showVocalEngineer(store: Store, colors: string[]): void {
     beatBtn.textContent = files.beat ? `Beat: ${files.beat.name}` : 'Choose the beat it goes over…';
   }
   show();
+  void loadPresets();
   modal('Vocal engineer', h('div', { class: 've' },
     h('p', { class: 've-note' }, 'It measures the take first and only uses what the take needs. The before and after play at the same loudness, so what you hear is the processing, not the volume.'),
     h('div', { class: 've-row' }, vocalBtn, beatBtn),
     h('div', { class: 've-row' }, h('label', null, 'Direction ', dirSel), h('label', { title: 'Rapped or spoken takes are left untuned unless you tick this' }, tune, ' Tune even if it reads as rapped'), runBtn),
+    h('div', { class: 've-row' }, h('label', null, 'Preset ', presetSel), refBtn),
     status, players, keep, report), { wide: true, onClose: () => urls.forEach((u) => URL.revokeObjectURL(u)) });
 }

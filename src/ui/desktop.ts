@@ -47,7 +47,7 @@ export interface DesktopApi {
   /** Package four parts as a Stem2 track and, if the speaker is plugged in as a USB drive, copy it on (a new folder only). */
   stem2Send(job: { stems: Record<string, Uint8Array>; title: string; artist: string; bpm: number; bars: number[]; key: string; tonality: string }): Promise<{ folder?: string; copied?: boolean; drive?: string; seconds?: number; error?: string }>;
   /** Analyze a vocal against its beat, build a chain from the findings and render before / after (WAV bytes in and out). */
-  vocalEngineer(job: { vocal: Uint8Array; beat: Uint8Array; direction: string; retune: boolean }): Promise<{
+  vocalEngineer(job: { vocal: Uint8Array; beat: Uint8Array; direction: string; retune: boolean; preset?: string }): Promise<{
     report?: { analysis: Record<string, number> & { key: string }; chain: string[]; checks: Record<string, number | boolean> };
     before?: Uint8Array;
     after?: Uint8Array;
@@ -66,6 +66,10 @@ export interface DesktopApi {
   beatSearch(tags: string[]): Promise<{ beats?: import('./beatfinder').Beat[]; error?: string }>;
   /** Download a found beat (ccmixter.org only) and save its licence record beside it. */
   beatFetch(beat: import('./beatfinder').Beat, record: string): Promise<{ audio?: Uint8Array; folder?: string; error?: string }>;
+  /** Saved vocal presets (measured from reference vocals). */
+  vocalPresets(): Promise<{ name: string; source: string; made: string; measured: Record<string, number | null>; tuning: { why: string } }[]>;
+  /** Measure a reference vocal (WAV bytes) and save it as a preset. */
+  vocalPresetMake(job: { reference: Uint8Array; name: string; source: string; bpm?: number }): Promise<{ preset?: { name: string; measured: Record<string, number | null> }; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

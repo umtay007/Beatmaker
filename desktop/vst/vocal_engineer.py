@@ -156,7 +156,7 @@ def deess(x, amount_db, thr_db):
     return x - s + s * gain
 
 
-def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
+def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path, preset_path=None):
     os.makedirs(out_dir, exist_ok=True)
     d = DIRECTIONS[direction]
     x = load_mono(vocal_path)
@@ -168,6 +168,15 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
         tonic, mode = estimate_key(f0, forced_key)
         a['key'] = f'{KEYS[tonic]}:{mode} (set by you)'
     why = []
+    # A reference-derived preset: its targets replace the direction's fixed amounts, and every amount is worked out
+    # from the difference between the reference's measurements and this take's.
+    preset = json.load(open(preset_path, encoding='utf-8')) if preset_path else None
+    if preset:
+        tg = preset['targets']
+        d = dict(d, ratio=float(np.clip(2.5 * a['loudness_range_db'] / max(tg['loudness_range_db'], 4.0), 2.0, 8.0)), drive=preset['drive_db'],
+                 double=float(np.interp(tg['width_db'], [-25, -15, -8], [0.0, 0.4, 0.8])), verb=preset['reverb_send_db'], decay=preset['reverb_decay_s'],
+                 delay=preset['delay_send_db'], retune=preset['tuning']['strength'] if preset['tuning']['apply'] else 0.0)
+        why.append(f"Preset \"{preset['name']}\": targets measured from a reference vocal ({preset['source'] or 'source not stated'}). They describe that finished vocal, not the settings used to make it.")
     if a['clipped_samples'] or a['peak_dbfs'] > 0:
         why.append(f"Source is clipped or over full scale ({a['clipped_samples']} samples at/over 0 dBFS, peak {a['peak_dbfs']} dBFS): this tool does not repair that, it only reports it.")
     y = x.copy()
@@ -189,9 +198,9 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
     y = Pedalboard(chain)(y, SR)
 
     # 3. pitch correction, only when the take is audibly off the scale
-    retune_used = a['pitch_deviation_cents_mean_abs'] > 18 and d['retune'] > 0 and (a['sustained_pitch_share'] >= 0.35 or FORCE_RETUNE)
+    retune_used = a['pitch_deviation_cents_mean_abs'] > 18 and d['retune'] > 0 and (a['sustained_pitch_share'] >= 0.35 or FORCE_RETUNE or bool(preset and preset['tuning']['apply']))
     if retune_used:
-        y = retune(y, f0, t, tonic, mode, d['retune'], 40)
+        y = retune(y, f0, t, tonic, mode, d['retune'], preset['tuning']['speed_ms'] if preset else 40)
         why.append(f"Pitch correction toward {KEYS[tonic]} {mode}, strength {d['retune']:.2f}, vibrato kept: mean deviation was {a['pitch_deviation_cents_mean_abs']} cents.")
     elif a['sustained_pitch_share'] < 0.35:
         why.append(f"No pitch correction: only {a['sustained_pitch_share']:.0%} of the voiced time holds a pitch, so this reads as rapped or spoken, and snapping it to a scale would damage the delivery (mean deviation {a['pitch_deviation_cents_mean_abs']} cents is expected). Pass --retune to force it anyway.")
@@ -200,14 +209,27 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
 
     # 5. corrective + direction EQ
     eq = []
-    if a['mud_db_vs_body'] > -2:
+    if preset:
+        gp = float(np.clip(tg['presence_db_vs_body'] - a['presence_db_vs_body'], -6, 6))
+        ga = float(np.clip(tg['air_db_vs_body'] - a['air_db_vs_body'], -6, 6))
+        gm = float(np.clip(tg['mud_db_vs_body'] - a['mud_db_vs_body'], -5, 0))
+        if abs(gp) >= 0.5:
+            eq.append(PeakFilter(3500, gp, 0.9))
+        if abs(ga) >= 0.5:
+            eq.append(HighShelfFilter(10000, ga, 0.7))
+        if gm <= -0.5:
+            eq.append(PeakFilter(320, gm, 1.1))
+        why.append(f"EQ toward the reference: presence {gp:+.1f} dB (reference {tg['presence_db_vs_body']} dB vs body, this take {a['presence_db_vs_body']}), air {ga:+.1f} dB (reference {tg['air_db_vs_body']}, take {a['air_db_vs_body']}), low-mid {gm:+.1f} dB. Each move is capped at 6 dB.")
+        if not preset['tuning']['apply']:
+            why.append(f"No pitch correction from the preset: {preset['tuning']['why']}.")
+    if not preset and a['mud_db_vs_body'] > -2:
         cut = -min(4.0, 1.5 + (a['mud_db_vs_body'] + 2) * 0.5)
         eq.append(PeakFilter(320, cut, 1.1))
         why.append(f"Mud cut {cut:.1f} dB at 320 Hz: 200-450 Hz is {a['mud_db_vs_body']} dB vs the body.")
-    if a['presence_db_vs_body'] < -8 or d['presence'] > 2:
+    if not preset and (a['presence_db_vs_body'] < -8 or d['presence'] > 2):
         eq.append(PeakFilter(3500, d['presence'] + (1.5 if a['presence_db_vs_body'] < -8 else 0), 0.9))
         why.append(f"Presence {d['presence']:+.1f} dB at 3.5 kHz (+1.5 more because presence is low) for the '{direction}' direction.")
-    if a['air_db_vs_body'] < -18 or d['air'] >= 2:
+    if not preset and (a['air_db_vs_body'] < -18 or d['air'] >= 2):
         eq.append(HighShelfFilter(10000, d['air'], 0.7))
         why.append(f"Air shelf {d['air']:+.1f} dB above 10 kHz ({direction}; air is {a['air_db_vs_body']} dB vs body).")
     if eq:
@@ -217,10 +239,10 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
     r_db = db(frames_rms(y))
     thr = float(np.percentile(r_db, 70))
     y = Pedalboard([Compressor(threshold_db=thr, ratio=d['ratio'], attack_ms=8, release_ms=90)])(y, SR)
-    why.append(f"Compressor {d['ratio']}:1 with threshold at the 70th percentile level ({thr:.1f} dBFS): loudness range was {a['loudness_range_db']} dB.")
+    why.append(f"Compressor {d['ratio']:.1f}:1 with threshold at the 70th percentile level ({thr:.1f} dBFS): loudness range was {a['loudness_range_db']} dB.")
     if d['drive'] > 0:
         y = Pedalboard([Distortion(drive_db=d['drive']), Gain(-d['drive'] * 0.35)])(y, SR)
-        why.append(f"Saturation drive {d['drive']} dB ({direction}).")
+        why.append(f"Saturation drive {d['drive']} dB ({'preset' if preset else direction}).")
     # de-esser last, after the compressor and saturation (they lift the "s" sounds back up), tightened until the
     # measured sibilance is no worse than the raw take's: this is checked, not assumed
     def sib_ratio(sig):
@@ -244,6 +266,40 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
     else:
         why.append(f"No de-esser: sibilance {a['sibilance_db_vs_body']} dB vs body, peaks {a['sibilance_peak_over_median_db']} dB over median.")
     dry_processed = y.copy()
+    reached = None
+    if preset:
+        # The compressor, saturation and de-esser move the tone and the dynamics again, so the result is measured
+        # and corrected, up to three rounds: more compression while the loudness range is over the reference's,
+        # and a trim EQ for what is left of the tone difference.
+        def now(sig):
+            b_ = np.mean(band(sig, 450, 2000) ** 2)
+            rr = db(frames_rms(sig))
+            return {'presence_db_vs_body': round(float(10 * np.log10(np.mean(band(sig, 2000, 5000) ** 2) / b_)), 1),
+                    'air_db_vs_body': round(float(10 * np.log10(np.mean(band(sig, 9500, 16000) ** 2) / b_)), 1),
+                    'loudness_range_db': round(float(np.percentile(rr, 95) - np.percentile(rr, 20)), 1)}
+
+        rounds = 0
+        for rounds in range(1, 4):
+            m_ = now(y)
+            over = m_['loudness_range_db'] - tg['loudness_range_db']
+            gp = float(np.clip(tg['presence_db_vs_body'] - m_['presence_db_vs_body'], -4, 4))
+            ga = float(np.clip(tg['air_db_vs_body'] - m_['air_db_vs_body'], -4, 4))
+            if over <= 1.5 and abs(gp) < 0.7 and abs(ga) < 0.7:
+                rounds -= 1
+                break
+            chain2 = []
+            if over > 1.5:
+                rr = db(frames_rms(y))
+                chain2.append(Compressor(threshold_db=float(np.percentile(rr, 45)), ratio=float(np.clip(1.5 + over / 3, 2, 6)), attack_ms=5, release_ms=120))
+            if abs(gp) >= 0.7:
+                chain2.append(PeakFilter(3500, gp, 0.9))
+            if abs(ga) >= 0.7:
+                chain2.append(HighShelfFilter(10000, ga, 0.7))
+            y = Pedalboard(chain2)(y, SR).astype(np.float64)
+        dry_processed = y.copy()
+        got = now(y)
+        reached = {k: [tg[k], got[k]] for k in got}
+        why.append(f"Corrected toward the reference in {rounds} round{'s' if rounds != 1 else ''} after the dynamics stages. Target and reached: " + '; '.join(f'{k.replace("_", " ")} {v[0]} / {v[1]}' for k, v in reached.items()) + '. A gap that remains is the limit of this chain on this take, not hidden.')
 
     # 7. doubles (stereo) and sends
     L = R = y.copy()
@@ -322,6 +378,8 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
     checks['vocal_alignment_lag_samples'] = lag
     checks['vocal_alignment_ok'] = abs(lag) <= 64
     checks['matched_lufs'] = round(float(target), 2)
+    if reached:
+        checks['preset_target_and_reached'] = reached
     checks['lufs_before_after_matched'] = bool(abs(meter.integrated_loudness(before_m.T) - meter.integrated_loudness(after_m.T)) < 0.1)
 
     sf.write(os.path.join(out_dir, 'mix_before.wav'), before_m.T, SR, subtype='PCM_24')
@@ -342,8 +400,9 @@ if __name__ == '__main__':
     ap.add_argument('out')
     ap.add_argument('direction', nargs='?', default='clean', choices=list(DIRECTIONS))
     ap.add_argument('--key')
+    ap.add_argument('--preset', help='a preset made by vocal_reference.py')
     ap.add_argument('--retune', action='store_true', help='apply pitch correction even to rapped or spoken material')
     ap.add_argument('--verb', default=r'E:\beatmaker\VSTS\Valhalla_VintageVerb\ValhallaVintageVerb.vst3')
     args = ap.parse_args()
     FORCE_RETUNE = args.retune
-    run(args.vocal, args.beat, args.out, args.direction, args.key, args.verb)
+    run(args.vocal, args.beat, args.out, args.direction, args.key, args.verb, args.preset)

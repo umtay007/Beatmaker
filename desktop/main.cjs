@@ -502,6 +502,40 @@ ipcMain.handle('stem2-send', async (_e, job) => {
   }
 });
 
+// Vocal presets measured from a reference vocal (vst/vocal_reference.py), kept in userData/vocal-presets.
+const presetDir = () => path.join(app.getPath('userData'), 'vocal-presets');
+const presetFile = (name) => path.join(presetDir(), String(name).replace(/[^a-z0-9 _()-]/gi, '').trim().slice(0, 60) + '.json');
+ipcMain.handle('vocal-presets', async () => {
+  try {
+    const out = [];
+    for (const f of await fsp.readdir(presetDir())) if (f.endsWith('.json')) out.push(JSON.parse(await fsp.readFile(path.join(presetDir(), f), 'utf8')));
+    return out;
+  } catch {
+    return [];
+  }
+});
+ipcMain.handle('vocal-preset-make', async (_e, job) => {
+  const root = sepRoot();
+  if (!root) return { error: 'Not set up (start Beatmaker once with --sep <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-ref-'));
+  try {
+    const file = presetFile(job.name);
+    if (path.basename(file) === '.json') return { error: 'Give the preset a name' };
+    await fsp.mkdir(presetDir(), { recursive: true });
+    const ref = path.join(tmp, 'ref.wav');
+    await fsp.writeFile(ref, Buffer.from(job.reference));
+    const args = [path.join(path.dirname(vstScript()), 'vocal_reference.py'), ref, file, path.basename(file, '.json'), '--source', String(job.source || '')];
+    if (job.bpm) args.push('--bpm', String(job.bpm));
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), args, { spawn: { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } } });
+    if (r.code !== 0 || !fs.existsSync(file)) return { error: 'It failed: ' + r.out.trim().slice(-240) };
+    return { preset: JSON.parse(await fsp.readFile(file, 'utf8')) };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // The vocal engineer (vst/vocal_engineer.py, in the --sep folder's Python): a vocal and its beat in, the report and
 // the before / after / processed WAVs out.
 ipcMain.handle('vocal-engineer', async (_e, job) => {
@@ -514,6 +548,7 @@ ipcMain.handle('vocal-engineer', async (_e, job) => {
     await fsp.writeFile(path.join(tmp, 'beat.wav'), Buffer.from(job.beat));
     const args = [path.join(path.dirname(vstScript()), 'vocal_engineer.py'), path.join(tmp, 'vocal.wav'), path.join(tmp, 'beat.wav'), path.join(tmp, 'out'), dir];
     if (job.retune) args.push('--retune');
+    if (job.preset && fs.existsSync(presetFile(job.preset))) args.push('--preset', presetFile(job.preset));
     const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), args, { spawn: { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } } });
     const rep = path.join(tmp, 'out', 'analysis_' + dir + '.json');
     if (r.code !== 0 || !fs.existsSync(rep)) return { error: 'It failed: ' + r.out.trim().slice(-240) };

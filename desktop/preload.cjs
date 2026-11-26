@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
     api: (method, path, body) => ipcRenderer.invoke('spotify-api', method, path, body),
   },
   vocalEngineer: (job) => ipcRenderer.invoke('vocal-engineer', job),
+  vocalPresets: () => ipcRenderer.invoke('vocal-presets'),
+  vocalPresetMake: (job) => ipcRenderer.invoke('vocal-preset-make', job),
   stem2Send: (job) => ipcRenderer.invoke('stem2-send', job),
   beatsRun: (wav) => ipcRenderer.invoke('beats-run', wav),
   stemClean: (stem, vocals, bpm, offset) => ipcRenderer.invoke('stem-clean', stem, vocals, bpm, offset),
