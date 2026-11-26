@@ -424,6 +424,28 @@ ipcMain.handle('stem-clean', async (_e, stem, vocals, bpm, offset) => {
   }
 });
 
+// Beats and downbeats (vst/beats.py: Beat This!, in the --sep folder's Python).
+ipcMain.handle('beats-ready', () => !!sepRoot());
+/** wav bytes → { beats, downbeats } in seconds, or { error }. */
+ipcMain.handle('beats-run', async (_e, wav) => {
+  const root = sepRoot();
+  if (!root) return { error: 'Beat tracking is not set up (start Beatmaker once with --sep <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-beats-'));
+  try {
+    const input = path.join(tmp, 'in.wav');
+    const out = path.join(tmp, 'out.json');
+    await fsp.writeFile(input, Buffer.from(wav));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'beats.py'), input, out], { spawn: { env } });
+    if (r.code !== 0 || !fs.existsSync(out)) return { error: 'Beat tracking failed: ' + r.out.trim().slice(-200) };
+    return JSON.parse(await fsp.readFile(out, 'utf8'));
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
 // sounds most like a reference, by music-listening models.
 ipcMain.handle('ears-ready', () => {

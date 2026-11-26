@@ -40,6 +40,10 @@ export interface DesktopApi {
   devocalRun(wav: Uint8Array): Promise<{ instrumental?: Uint8Array; vocals?: Uint8Array; error?: string }>;
   /** Clean the bleed of a voice out of a stem (WAV bytes) with the vocals track as a guide; `offset` is where the song starts in the audio (seconds). */
   stemClean(stem: Uint8Array, vocals: Uint8Array, bpm: number, offset: number): Promise<{ wav?: Uint8Array; error?: string }>;
+  /** Whether beat tracking (Beat This!) is set up (it lives in the --sep folder). */
+  beatsReady(): Promise<boolean>;
+  /** Beats and downbeats of a song (WAV bytes), in seconds. */
+  beatsRun(wav: Uint8Array): Promise<{ beats?: number[]; downbeats?: number[]; error?: string }>;
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

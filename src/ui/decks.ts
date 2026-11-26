@@ -11,13 +11,13 @@ import SignalsmithStretch, { type StretchNode } from '../vendor/signalsmith-stre
 import { detectAudioKey } from '../audio/key';
 import { separateStems, type Stems } from '../audio/separate';
 import { detectTempo, peakEnvelope } from '../audio/tempo';
+import { encodeWav } from '../audio/render';
+import { desktop } from './desktop';
 import { downloadBlob, h, pickFile, toast } from './dom';
 
 const STEMS = ['vocals', 'other', 'bass', 'drums'] as const;
 type StemName = (typeof STEMS)[number];
 const LABEL: Record<StemName, string> = { vocals: 'Vocals', other: 'Melody', bass: 'Bass', drums: 'Drums' };
-/** The order a transition hands the parts over in. */
-const HANDOFF: StemName[] = ['drums', 'bass', 'other', 'vocals'];
 const KEYS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const PEAK_RATE = 200;
 const COLORS = ['#b98cf0', '#c9a15a'];
@@ -44,7 +44,45 @@ interface Deck {
   startPos: number;
   rate: number;
   status: string;
+  /** A warning about the beat grid, shown on the deck. */
+  gridNote: string;
   abort: AbortController | null;
+}
+
+const median = (xs: number[]) => [...xs].sort((x, y) => x - y)[xs.length >> 1];
+
+/**
+ * A steady grid from tracked beats and downbeats: the tempo from the beats (their spacing is the reliable part),
+ * bar 1 from the downbeats when they fall four (or three) beats apart, else from the first beat with a warning.
+ */
+export function gridFrom(beats: number[], downbeats: number[]): { bpm: number; firstBeat: number; gridNote: string } | null {
+  if (beats.length < 8) return null;
+  const rough = median(beats.slice(1).map((t, i) => t - beats[i]));
+  // A line through the beats against their beat numbers (numbered by rounding, so a missed beat leaves a gap
+  // instead of shifting the count), fitted twice: the second pass numbers them with the better tempo.
+  let beat = rough;
+  let origin = beats[0];
+  for (let pass = 0; pass < 2; pass++) {
+    const idx = beats.map((t) => Math.round((t - origin) / beat));
+    const mi = idx.reduce((x, v) => x + v, 0) / idx.length;
+    const mt = beats.reduce((x, v) => x + v, 0) / beats.length;
+    beat = idx.reduce((x, v, i) => x + (v - mi) * (beats[i] - mt), 0) / idx.reduce((x, v) => x + (v - mi) ** 2, 0);
+    origin = mt - mi * beat;
+  }
+  const bpm = Math.round((60 / beat) * 10) / 10;
+  const barGap = downbeats.length >= 3 ? median(downbeats.slice(1).map((t, i) => t - downbeats[i])) : 0;
+  if (Math.abs(barGap / beat - 4) < 0.3) {
+    const bar = 4 * beat;
+    // where the downbeats sit within the bar, as an angle so the wrap-around averages properly
+    const ang = downbeats.map((t) => ((t % bar) / bar) * 2 * Math.PI);
+    const mean = Math.atan2(ang.reduce((x, v) => x + Math.sin(v), 0), ang.reduce((x, v) => x + Math.cos(v), 0));
+    const firstBeat = (((mean / (2 * Math.PI)) * bar) % bar + bar) % bar;
+    // how far the beats stray from the steady grid (the 95th percentile: a few stray detections don't count)
+    const off = beats.map((t) => { const ph = ((t - origin) % beat + beat) % beat; return Math.min(ph, beat - ph); }).sort((x, y) => x - y);
+    const drift = off[Math.floor(off.length * 0.95)];
+    return { bpm, firstBeat, gridNote: drift > beat / 4 ? `The tempo drifts: beats stray up to ${Math.round(drift * 1000)} ms from a steady grid` : '' };
+  }
+  return { bpm, firstBeat: beats[0] % (4 * beat), gridNote: 'Bar lines uncertain: check where bar 1 starts (grid buttons)' };
 }
 
 const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
@@ -86,7 +124,7 @@ export async function showDecks(): Promise<void> {
       pair(i, gains[s]);
     });
     pair(4, out);
-    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', abort: null };
+    return { side, name: '', buf: null, stems: null, bpm: 120, firstBeat: 0, key: '', peaks: null, gains, out, node, split, semi: 0, keyPc: 0, minor: false, playing: false, startCtx: 0, startPos: 0, rate: 1, status: '', gridNote: '', abort: null };
   };
   const decks: [Deck, Deck] = [await mkDeck(0), await mkDeck(1)];
   let keyMatch = false;
@@ -219,6 +257,32 @@ export async function showDecks(): Promise<void> {
       refresh();
     } else swap(stem, to.side, when, 0.06);
   };
+  /** Which parts play in each bar of a deck: louder than a quarter of that part's usual level. */
+  const activity = (d: Deck): Record<StemName, boolean[]> => {
+    const bar = 4 * beatLen(d);
+    const n = Math.max(0, Math.floor((d.buf!.duration - d.firstBeat) / bar));
+    const out = {} as Record<StemName, boolean[]>;
+    for (const st of STEMS) {
+      const buf = d.stems![st];
+      const ch = buf.getChannelData(0);
+      const rms: number[] = [];
+      for (let k = 0; k < n; k++) {
+        const from = Math.floor((d.firstBeat + k * bar) * buf.sampleRate);
+        const to = Math.min(ch.length, Math.floor((d.firstBeat + (k + 1) * bar) * buf.sampleRate));
+        let sum = 0;
+        for (let i = from; i < to; i += 4) sum += ch[i] * ch[i];
+        rms.push(Math.sqrt(sum / Math.max(1, (to - from) / 4)));
+      }
+      const usual = [...rms].sort((x, y) => x - y)[Math.floor(rms.length * 0.9)] ?? 0;
+      out[st] = rms.map((v) => v > 0.25 * usual && v > 1e-3);
+    }
+    return out;
+  };
+  /**
+   * Hand the mix to the other song, planned from what the two songs are doing: it starts on the playing song's
+   * next 8-bar phrase, brings the other in from its first phrase with at least two parts playing, never lets two
+   * basslines or two lead vocals sound together, and takes 8 bars when both songs are busy, 4 otherwise.
+   */
   const transition = () => {
     const from = lead();
     const to = decks[from.side === 0 ? 1 : 0];
@@ -226,19 +290,50 @@ export async function showDecks(): Promise<void> {
     if (!from.playing) return void toast('Play a song first.', 'info');
     if (busy) return;
     void ctx.resume();
+    if (to.playing) pause(to);
+    const A = activity(from);
+    const B = activity(to);
+    const barF = 4 * beatLen(from);
+    const barT = 4 * beatLen(to);
+    const now = pos(from);
+    // the next phrase line that leaves time to start the other deck
+    let exit = Math.ceil(((now - from.firstBeat) / barF + 0.5) / 8) * 8;
+    if (from.firstBeat + exit * barF > from.buf!.duration - 9 * barF) exit = Math.max(0, Math.floor((now - from.firstBeat) / barF) + 1);
+    const count = (act: Record<StemName, boolean[]>, k: number) => STEMS.filter((x) => act[x][k] || act[x][k + 1]).length;
+    let entry = 0;
+    for (let k = 0; k < B.drums.length - 8; k += 8) if (count(B, k) >= 2) { entry = k; break; }
+    const len = count(A, exit) >= 3 && count(B, entry) >= 3 ? 8 : 4;
+    const span = (act: boolean[], k: number) => act.slice(k, k + len).some(Boolean);
+    const vocA = span(A.vocals, exit);
+    const vocB = span(B.vocals, entry);
+    to.rate = sync ? syncRate(to, from) : 1;
+    to.semi = keyMatch ? keyShift(to, from) : 0;
+    const t0 = ctx.currentTime + (from.firstBeat + exit * barF - now) / from.rate;
+    start(to, to.firstBeat + entry * barT, t0);
+    const barRt = barF / from.rate;
+    // when (in bars after the start) each part changes hands, and how long its fade is
+    const at: Record<StemName, [number, number]> = {
+      other: [span(A.other, exit) ? len / 4 : 0, barRt],
+      drums: [len / 2, 0.1],
+      bass: [len / 2, 0.1], // with the drums, cut not blended: two basslines together are mud
+      vocals: vocA && vocB ? [len / 2, 0.08] : vocA ? [len, barRt / 2] : vocB ? [0, barRt / 2] : [len / 2, 0.1],
+    };
+    for (const st of STEMS) if (assign[st] !== to.side) swap(st, to.side, t0 + at[st][0] * barRt, at[st][1]);
+    const notes: string[] = [];
+    notes.push(`Starts at bar ${exit + 1} of ${from.name} (in ${Math.max(0, Math.round((t0 - ctx.currentTime) / barRt))} bars), ${len} bars long, ${to.name} comes in from its bar ${entry + 1}.`);
+    notes.push(vocA && vocB ? 'Both have vocals there: they swap in one cut at the midpoint, so two leads never overlap.' : vocA ? 'Only the outgoing song sings there: its vocal stays to the end.' : vocB ? 'Only the incoming song sings there: its vocal comes in at once.' : 'No vocals in the overlap.');
+    const stretch = Math.round((to.rate - 1) * 100);
+    if (Math.abs(stretch) > 8) notes.push(`Low confidence: ${to.name} is stretched ${stretch > 0 ? '+' : ''}${stretch}% to match the tempo, which can sound unnatural.`);
+    const apart = Math.abs(keyShift(to, from));
+    if (!keyMatch && apart !== 0 && apart !== 5) notes.push(`Low confidence: the keys are ${apart} semitone${apart === 1 ? '' : 's'} apart and may clash. Try "Key: match".`);
+    if (from.gridNote || to.gridNote) notes.push('Low confidence: a beat grid is uncertain (see the deck), so the songs may not line up.');
+    plan.textContent = notes.join(' ');
     busy = true;
-    const t0 = bringIn(to, from);
-    const barRt = (4 * beatLen(from)) / from.rate;
-    const first = to.playing && t0 < ctx.currentTime + 0.3 ? nextBoundary(from, 4).when : t0;
-    HANDOFF.forEach((stem, i) => {
-      if (assign[stem] !== to.side) swap(stem, to.side, first + i * 2 * barRt, stem === 'drums' ? 0.1 : beatLen(from) / from.rate);
-    });
-    const done = first + 6 * barRt + barRt;
     window.setTimeout(() => {
       busy = false;
       pause(from);
       refresh();
-    }, (done - ctx.currentTime) * 1000);
+    }, (t0 + (len + 0.5) * barRt - ctx.currentTime) * 1000);
     refresh();
   };
 
@@ -263,11 +358,23 @@ export async function showDecks(): Promise<void> {
     try {
       const tempo = detectTempo(buf);
       const k = detectAudioKey(buf);
-      Object.assign(d, { buf, stems: null, name, bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, keyPc: k.key, minor: k.scale === 'minor', semi: 0, peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
+      Object.assign(d, { buf, stems: null, name, bpm: Math.round(tempo.bpm * 10) / 10, firstBeat: tempo.firstBeat, key: `${KEYS[k.key]} ${k.scale}`, keyPc: k.key, minor: k.scale === 'minor', semi: 0, gridNote: '', peaks: peakEnvelope(buf, PEAK_RATE), startPos: 0, rate: 1 });
       const other = decks[d.side === 0 ? 1 : 0];
       if (!other.buf) for (const s of STEMS) assign[s] = d.side;
       applyGains();
       await setBuffers(d);
+      // Real beats and bar lines where the beat tracker is set up (desktop): the quick detector above only
+      // guesses a tempo and takes the first beat for the downbeat. A straight line through the downbeats gives
+      // the bar length and where bar 1 starts (a steady tempo is assumed; a drifting one is not followed).
+      const app = desktop();
+      if (!given && app?.beatsRun && (await app.beatsReady())) {
+        d.status = 'Finding the beats…';
+        refresh();
+        const r = await app.beatsRun(new Uint8Array(await encodeWav(buf).arrayBuffer()));
+        const g = gridFrom(r.beats ?? [], r.downbeats ?? []);
+        if (g) Object.assign(d, g);
+        else if (r.error) console.warn(r.error);
+      }
       d.abort = new AbortController();
       d.status = 'Separating the parts…';
       refresh();
@@ -347,6 +454,7 @@ export async function showDecks(): Promise<void> {
     refresh();
   } });
   const transBtn = h('button', { class: 'dk-chip dk-trans', onclick: transition }, '⇄ Transition');
+  const plan = h('div', { class: 'dk-plan' });
   const canvases = [h('canvas', { class: 'dk-wave' }) as HTMLCanvasElement, h('canvas', { class: 'dk-wave' }) as HTMLCanvasElement];
   canvases.forEach((c, i) => (c.onclick = (e) => {
     const d = decks[i];
@@ -372,12 +480,12 @@ export async function showDecks(): Promise<void> {
   };
   const root = h('div', { class: 'dk' },
     h('div', { class: 'dk-top' }, recBtn, h('div', { class: 'dk-head' }, 'Two-deck mixer'), keyBtn, syncBtn, h('button', { class: 'dk-chip', onclick: close }, 'Close')),
-    h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn), ui[1].el),
+    h('div', { class: 'dk-main' }, ui[0].el, h('div', { class: 'dk-pads' }, pads.vocals, h('div', { class: 'dk-padrow' }, pads.other, pads.bass), pads.drums, transBtn, plan), ui[1].el),
     h('div', { class: 'dk-waves' }, canvases[0], canvases[1]),
     h('div', { class: 'dk-bar' }, playAll, clock));
   document.body.append(root);
 
-  const refreshStatus = () => decks.forEach((d, i) => (ui[i].status.textContent = d.status));
+  const refreshStatus = () => decks.forEach((d, i) => (ui[i].status.textContent = d.status || d.gridNote));
   function refresh(): void {
     decks.forEach((d, i) => {
       const u = ui[i];
@@ -437,5 +545,5 @@ export async function showDecks(): Promise<void> {
   refresh();
   draw();
   // For tests and scripting: the same actions the buttons take.
-  (window as unknown as Record<string, unknown>).beatmakerDecks = { ctx, master: limiter, decks, assign, loadBuffer, start, pause, pos, transition, padClick, applyGains, setKeyMatch: (v: boolean) => (keyMatch = v) };
+  (window as unknown as Record<string, unknown>).beatmakerDecks = { gridFrom, ctx, master: limiter, decks, assign, loadBuffer, start, pause, pos, transition, padClick, applyGains, setKeyMatch: (v: boolean) => (keyMatch = v) };
 }
