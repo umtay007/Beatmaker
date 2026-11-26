@@ -1,4 +1,5 @@
 import { midiToFreq } from '../core/theory';
+import type { FittedSound } from '../core/types';
 
 /**
  * Building blocks for synthesized voices, shared by every instrument module.
@@ -12,6 +13,10 @@ export interface VoiceArgs {
   vel: number;
   /** For mono instruments: slide from this pitch (legato). */
   glideFrom?: number;
+  /** The track's fitted sound, for the 'fitted' instrument. */
+  fitted?: FittedSound;
+  /** The note's own level curve (see Note.shape). */
+  shape?: number[];
 }
 
 export interface Voice {

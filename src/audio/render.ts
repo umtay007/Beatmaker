@@ -38,7 +38,7 @@ export async function renderSong(song: Song, opts: RenderOptions): Promise<Audio
   const sched = new NoteScheduler(graph, kits);
   for (const ev of buildEvents(song, tl)) {
     if (ev.t < opts.from || ev.t >= opts.to) continue;
-    sched.play(ev.track, ev.note.pitch, ev.note.vel, ev.t - opts.from, Math.max(0.02, ev.end - ev.t), ev.glideFrom);
+    sched.play(ev.track, ev.note.pitch, ev.note.vel, ev.t - opts.from, Math.max(0.02, ev.end - ev.t), ev.glideFrom, false, ev.note.shape);
   }
   for (const t of song.tracks) if (t.automation) graph.automate(t, song, tl, opts.from, opts.from + length, (sec) => sec - opts.from, true);
   if (opts.backing) {

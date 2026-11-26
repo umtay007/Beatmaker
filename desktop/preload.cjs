@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   vocalPresetMake: (job) => ipcRenderer.invoke('vocal-preset-make', job),
   stem2Send: (job) => ipcRenderer.invoke('stem2-send', job),
   beatsRun: (wav) => ipcRenderer.invoke('beats-run', wav),
+  resynthRun: (wav) => ipcRenderer.invoke('resynth-run', wav),
   stemClean: (stem, vocals, bpm, offset) => ipcRenderer.invoke('stem-clean', stem, vocals, bpm, offset),
   devocalRun: (wav) => ipcRenderer.invoke('devocal-run', wav),
   ymt3Ready: () => ipcRenderer.invoke('ymt3-ready'),

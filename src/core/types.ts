@@ -16,9 +16,21 @@ export interface Note {
   dur: number;
   /** Velocity 0..1. */
   vel: number;
+  /** Fitted sounds only: this note's own level over time, against its velocity (1 = the velocity), one value
+   *  every `step` seconds of the track's fitted sound. Without it the sound's own envelope plays. */
+  shape?: number[];
 }
 
 export type TrackKind = 'drums' | 'synth';
+
+/** A sound fitted to a recording (instrument 'fitted'): its overtones, and how a note swells and fades. */
+export interface FittedSound {
+  /** Amplitude of each harmonic; the first is the fundamental. */
+  harmonics: number[];
+  /** A note's level from its start, one value every `step` seconds (it rises to the first from nothing, and holds the last). */
+  envelope: number[];
+  step: number;
+}
 
 export interface Track {
   id: string;
@@ -56,6 +68,8 @@ export interface Track {
   sampler?: SamplerSettings;
   /** The user's soundfont a track plays (instrument 'soundfont'). */
   soundfont?: SoundfontSettings;
+  /** The sound of a track fitted to a recording (instrument 'fitted'). */
+  fitted?: FittedSound;
   /** Colour effects after the EQ (see TrackFx). */
   fx?: TrackFx;
   /** Automation lanes: breakpoints that move a setting over time (they override its fixed value). */

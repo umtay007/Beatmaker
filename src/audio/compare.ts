@@ -435,3 +435,22 @@ export class Attacks {
     return correlation(this.target, profs[0].map((_, i) => profs.reduce((s, p) => s + p[i], 0) / profs.length));
   }
 }
+
+/**
+ * The four measures and the part's score for two recordings already at RATE, mono and lined up: for scoring a
+ * sound made outside the app against a stem with the same yardstick.
+ */
+export function scoreAudio(part: Part, stem: Float32Array, render: Float32Array): { score: number; hits: number | null; pitch: number | null; loudness: number | null; tone: number | null; eq: string[] } {
+  const p = PARTS.find((x) => x.part === part)!;
+  const S = spectrogram(stem, RATE, 0);
+  const R = spectrogram(render, RATE, 0);
+  clampFloor(R);
+  clampFloor(S);
+  const n = Math.min(R.db.length, S.db.length);
+  R.db.length = S.db.length = n;
+  const fs = features(S, p.lo, p.hi);
+  const fr = features(R, p.lo, p.hi);
+  const { off, notes } = eqNotes(S, R, fs, p);
+  const m = measure(p, S, R, fs, fr, off, 0, n);
+  return { score: combine(WEIGHTS[part], m) ?? 0, ...m, eq: notes };
+}

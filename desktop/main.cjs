@@ -447,6 +447,27 @@ ipcMain.handle('beats-run', async (_e, wav) => {
   }
 });
 
+// A melodic part read as notes on sounds fitted to it (vst/resynth.py, in the --sep folder's Python).
+/** wav bytes → { step, harmonics, kinds, notes } (see resynth.py), or { error }. */
+ipcMain.handle('resynth-run', async (_e, wav) => {
+  const root = sepRoot();
+  if (!root) return { error: 'Not set up (start Beatmaker once with --sep <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-resynth-'));
+  try {
+    const input = path.join(tmp, 'in.wav');
+    const out = path.join(tmp, 'out.json');
+    await fsp.writeFile(input, Buffer.from(wav));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'resynth.py'), input, out], { spawn: { env } });
+    if (r.code !== 0 || !fs.existsSync(out)) return { error: 'It failed: ' + r.out.trim().slice(-200) };
+    return JSON.parse(await fsp.readFile(out, 'utf8'));
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // Send a song's four parts to a Stem2 speaker: package them (vst/stem2_pack.py), and if the speaker is plugged in
 // as a USB drive, copy the new track onto it. Only ever adds one new folder; nothing on the device is replaced.
 function stem2Drive() {

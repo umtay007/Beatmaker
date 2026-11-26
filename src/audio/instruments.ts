@@ -590,6 +590,30 @@ for (const def of SAMPLED) {
   });
 }
 
+// A sound fitted to a recording (the track carries it: see FittedSound): its overtones as one wave, and each
+// note's level drawn from its envelope curve. Without a fitted sound on the track, a plain tone.
+INSTRUMENTS.push({
+  id: 'fitted',
+  label: 'Fitted to the song',
+  group: 'Sampler',
+  octave: 4,
+  build(ctx, out, a) {
+    const f = a.fitted ?? { harmonics: [1, 0.3, 0.15], envelope: [1, 0.8, 0.7], step: 0.05 };
+    const v = new VoiceKit(ctx, out, a, 0.02);
+    const o = v.osc('sine', 1, 0, wave(ctx, 'fitted:' + f.harmonics.join(), [0, ...f.harmonics]));
+    // (No initial .value: that adds an event at the current time, which would overlap the curve of a note scheduled late.)
+    const amp = ctx.createGain();
+    // the note's own curve where it has one (a note read from the recording), else the sound's
+    const env = a.shape?.length ? a.shape : f.envelope;
+    const n = a.dur === null ? env.length : Math.min(env.length, Math.max(1, Math.round(a.dur / f.step)));
+    const curve = new Float32Array(n + 1);
+    for (let i = 0; i < n; i++) curve[i + 1] = env[i] * a.vel;
+    amp.gain.setValueCurveAtTime(curve, a.time, n * f.step);
+    o.connect(amp).connect(v.gain(0.3)).connect(v.rel);
+    return v.finish();
+  },
+});
+
 // A soundfont the user loaded (see userfonts.ts; the scheduler handles it directly).
 INSTRUMENTS.push({ id: 'soundfont', label: 'Soundfont (SF2 / SFZ)…', group: 'Sampler', octave: 4, build: () => ({ release: () => {}, kill: () => {} }) });
 

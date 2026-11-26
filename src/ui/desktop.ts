@@ -44,6 +44,8 @@ export interface DesktopApi {
   beatsReady(): Promise<boolean>;
   /** Beats and downbeats of a song (WAV bytes), in seconds. */
   beatsRun(wav: Uint8Array): Promise<{ beats?: number[]; downbeats?: number[]; error?: string }>;
+  /** A melodic part (WAV bytes) read as notes on sounds fitted to it: notes are [pitch, start s, end s, level 0..1, kind, the note's own level curve]. */
+  resynthRun(wav: Uint8Array): Promise<{ step?: number; harmonics?: number[]; kinds?: { envelope: number[]; notes: number }[]; notes?: [number, number, number, number, number, number[]][]; error?: string }>;
   /** Package four parts as a Stem2 track and, if the speaker is plugged in as a USB drive, copy it on (a new folder only). */
   stem2Send(job: { stems: Record<string, Uint8Array>; title: string; artist: string; bpm: number; bars: number[]; key: string; tonality: string }): Promise<{ folder?: string; copied?: boolean; drive?: string; seconds?: number; error?: string }>;
   /** Analyze a vocal against its beat, build a chain from the findings and render before / after (WAV bytes in and out). */

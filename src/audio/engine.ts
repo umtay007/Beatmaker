@@ -398,7 +398,7 @@ export class AudioEngine {
       // After a long main-thread stall, drop notes that are well overdue rather than firing a burst.
       if (at < now - 0.05) continue;
       try {
-        sched.play(ev.track, ev.note.pitch, ev.note.vel, Math.max(at, now), Math.max(0.02, ev.end - ev.t), ev.glideFrom);
+        sched.play(ev.track, ev.note.pitch, ev.note.vel, Math.max(at, now), Math.max(0.02, ev.end - ev.t), ev.glideFrom, false, ev.note.shape);
       } catch (e) {
         // One bad voice must not stall the scheduler (it would re-schedule this range forever).
         console.warn('Could not schedule a note', e);

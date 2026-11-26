@@ -505,7 +505,7 @@ export class NoteScheduler {
 
   /** Schedule one event at absolute context time `at`, for `dur` seconds. */
   /** `live`: a key or pad played by hand (or a preview), which must not disturb queued ducking. */
-  play(track: Track, pitch: number, vel: number, at: number, dur: number | null, glideFrom?: number, live = false): Voice | null {
+  play(track: Track, pitch: number, vel: number, at: number, dur: number | null, glideFrom?: number, live = false, shape?: number[]): Voice | null {
     const ctx = this.graph.ctx;
     const bus = this.graph.bus(track);
     if (track.kind === 'drums') {
@@ -571,7 +571,7 @@ export class NoteScheduler {
     const from = glideFrom === undefined ? undefined : glideFrom + tune;
     const tail = track.release ?? 0;
     if (tail <= 0) {
-      const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
+      const voice = inst.build(ctx, bus.input, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from, fitted: track.fitted, shape });
       this.track(voice, dur === null ? Infinity : at + dur + 4);
       return voice;
     }
@@ -579,7 +579,7 @@ export class NoteScheduler {
     // (about -43 dB after `tail` seconds).
     const cut = ctx.createGain();
     cut.connect(bus.input);
-    const inner = inst.build(ctx, cut, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from });
+    const inner = inst.build(ctx, cut, { time: at, pitch: pitch + tune, dur, vel, glideFrom: from, fitted: track.fitted, shape });
     let faded = false;
     const fade = (t: number) => {
       if (faded) return;

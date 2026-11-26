@@ -318,6 +318,13 @@ function normalizeAutomation(v: unknown): Track['automation'] {
   return Object.keys(out).length ? out : undefined;
 }
 
+function normalizeFitted(v: unknown): Track['fitted'] {
+  const o = v as { harmonics?: unknown; envelope?: unknown; step?: unknown } | undefined;
+  const nums = (x: unknown) => (Array.isArray(x) ? x.filter((n): n is number => Number.isFinite(n) && n >= 0).slice(0, 2000) : []);
+  if (!o || typeof o !== 'object' || !nums(o.harmonics).length || !nums(o.envelope).length) return undefined;
+  return { harmonics: nums(o.harmonics).slice(0, 64), envelope: nums(o.envelope), step: num(o.step, 0.02, 0.001, 1) };
+}
+
 function normalizeSoundfont(v: unknown): SoundfontSettings | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const o = v as Record<string, unknown>;
@@ -413,6 +420,7 @@ export function normalizeSong(song: Partial<Song>): Song {
         res: num(t.res, 0, 0, 1),
         sampler: normalizeSampler(t.sampler),
         soundfont: normalizeSoundfont(t.soundfont),
+        fitted: normalizeFitted(t.fitted),
         fx: normalizeFx(t.fx),
         automation: normalizeAutomation(t.automation),
         mute: !!t.mute,
@@ -426,6 +434,7 @@ export function normalizeSong(song: Partial<Song>): Song {
             start: Math.max(0, Math.round(n.start)),
             dur: Math.max(1, Math.round(num(n.dur, STEP))),
             vel: num(n.vel, 0.8, 0.05, 1),
+            ...(Array.isArray(n.shape) && n.shape.length ? { shape: n.shape.filter((v) => Number.isFinite(v) && v >= 0).slice(0, 4000) } : {}),
           })),
       };
     }),

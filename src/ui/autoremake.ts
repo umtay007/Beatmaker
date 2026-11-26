@@ -19,6 +19,7 @@ import { detectSections } from '../audio/structure';
 import { Attacks, compareRemake, describeComparison, partScore, type Role } from '../audio/compare';
 import { struckParts } from './ymt3parts';
 import { applyVstSounds } from './vstparts';
+import { fittedParts } from './fittedparts';
 import { buildKitFromLibrary } from './mykit';
 import { balancePads } from '../audio/balance';
 import { followLevels } from '../audio/follow';
@@ -604,6 +605,17 @@ export async function autoRemake(
     } catch (e) {
       console.warn('VST sounds failed', e);
       report.push(`VST sounds: not used (${(e as Error).message})`);
+    }
+  }
+  // The chords and melody again as notes on sounds fitted to the original, kept where that matches it better.
+  if (stems) {
+    step('Fitting sounds to the original’s chords and melody…', 0.91);
+    try {
+      report.push(...(await fittedParts({ store, roleOf, stems, offset: off, colors })));
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      console.warn('Fitted sounds failed', e);
+      report.push(`Sounds fitted to the original: not used (${(e as Error).message})`);
     }
   }
   // Each part's tone, fitted against its own stem now that its sound is final.
