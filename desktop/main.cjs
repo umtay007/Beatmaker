@@ -501,6 +501,30 @@ ipcMain.handle('stem2-send', async (_e, job) => {
   }
 });
 
+// The vocal engineer (vst/vocal_engineer.py, in the --sep folder's Python): a vocal and its beat in, the report and
+// the before / after / processed WAVs out.
+ipcMain.handle('vocal-engineer', async (_e, job) => {
+  const root = sepRoot();
+  if (!root) return { error: 'The vocal engineer is not set up (start Beatmaker once with --sep <folder>)' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-vox-'));
+  try {
+    const dir = ['clean', 'melodic', 'aggressive', 'distorted', 'airy'].includes(job.direction) ? job.direction : 'clean';
+    await fsp.writeFile(path.join(tmp, 'vocal.wav'), Buffer.from(job.vocal));
+    await fsp.writeFile(path.join(tmp, 'beat.wav'), Buffer.from(job.beat));
+    const args = [path.join(path.dirname(vstScript()), 'vocal_engineer.py'), path.join(tmp, 'vocal.wav'), path.join(tmp, 'beat.wav'), path.join(tmp, 'out'), dir];
+    if (job.retune) args.push('--retune');
+    const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), args, { spawn: { env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } } });
+    const rep = path.join(tmp, 'out', 'analysis_' + dir + '.json');
+    if (r.code !== 0 || !fs.existsSync(rep)) return { error: 'It failed: ' + r.out.trim().slice(-240) };
+    const out = (f) => fsp.readFile(path.join(tmp, 'out', f));
+    return { report: JSON.parse(await fsp.readFile(rep, 'utf8')), before: await out('mix_before.wav'), after: await out('mix_after_' + dir + '.wav'), processed: await out('vocal_processed_' + dir + '.wav') };
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // The "ears" (vst/ears.py, in the YourMT3+ folder's Python): which of several candidate recordings
 // sounds most like a reference, by music-listening models.
 ipcMain.handle('ears-ready', () => {

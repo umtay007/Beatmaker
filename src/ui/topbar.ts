@@ -2,6 +2,7 @@ import { showLyrics } from './lyricsui';
 import { desktop } from './desktop';
 import { showRemake } from './remakeui';
 import { showDecks } from './decks';
+import { showVocalEngineer } from './vocalengineer';
 import type { AudioEngine } from '../audio/engine';
 import { GENRES } from '../beats/generator';
 import type { Store } from '../core/store';
@@ -156,6 +157,7 @@ export class TopBar {
       { label: 'Import MIDI…', icon: 'upload', action: () => a.pickAndOpen('.mid,.midi,audio/midi') },
       { label: 'Load reference audio…', icon: 'wave', action: () => a.pickAndOpen('') },
       { label: 'Two-deck stem mixer…', icon: 'sparkle', action: () => void showDecks() },
+      { label: 'Vocal engineer…', icon: 'sparkle', action: () => showVocalEngineer(this.store, a.palette()) },
       { label: 'Remake a song automatically…', icon: 'sparkle', action: () => void showRemake(this.store, this.engine, a, () => this.ab.open()) },
       ...(desktop() ? [{ label: 'Remake songs and export everything…', icon: 'sparkle', hint: 'no clicks after', action: () => void desktop()!.chooseSongs() }] : []),
       { label: 'Load drum pack…', icon: 'drum', hint: 'any sample pack', action: () => a.loadDrumPack() },

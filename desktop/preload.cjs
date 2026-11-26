@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   earsScore: (refs, cands) => ipcRenderer.invoke('ears-score', refs, cands),
   devocalReady: () => ipcRenderer.invoke('devocal-ready'),
   beatsReady: () => ipcRenderer.invoke('beats-ready'),
+  vocalEngineer: (job) => ipcRenderer.invoke('vocal-engineer', job),
   stem2Send: (job) => ipcRenderer.invoke('stem2-send', job),
   beatsRun: (wav) => ipcRenderer.invoke('beats-run', wav),
   stemClean: (stem, vocals, bpm, offset) => ipcRenderer.invoke('stem-clean', stem, vocals, bpm, offset),

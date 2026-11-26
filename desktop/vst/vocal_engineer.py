@@ -16,7 +16,7 @@ import pyloudnorm as pyln
 import pyworld as pw
 import soundfile as sf
 from pedalboard import Compressor, Delay, Distortion, Gain, HighpassFilter, HighShelfFilter, Limiter, LowpassFilter, NoiseGate, Pedalboard, PeakFilter, PitchShift, load_plugin
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, fftconvolve, resample_poly, sosfiltfilt
 
 SR = 44100
 FORCE_RETUNE = False
@@ -49,8 +49,11 @@ def frames_rms(x, n=2205):
 
 def load_mono(path, n=None):
     x, sr = sf.read(path, dtype='float64', always_2d=True)
-    assert sr == SR, f'{path}: expected {SR} Hz, got {sr}'
     x = x.mean(1)
+    if sr != SR:
+        from math import gcd
+        g = gcd(SR, int(sr))
+        x = resample_poly(x, SR // g, int(sr) // g)
     return x[:n] if n else x
 
 
@@ -84,7 +87,9 @@ def analyze(x, beat):
     a['snr_db'] = round(voiced_level - a['noise_floor_dbfs'], 1)
     a['loudness_range_db'] = round(float(np.percentile(r_db, 95) - np.percentile(r_db, 20)), 1)
     a['crest_db'] = round(float(db(np.abs(x).max()) - db(np.sqrt(np.mean(x ** 2)))), 1)
-    f0, t = pw.harvest(x, SR, f0_floor=70.0, f0_ceil=900.0, frame_period=5.0)
+    # DIO with StoneMask refinement: a fraction of Harvest's time, accurate enough for key, range and retune
+    f0, t = pw.dio(x, SR, f0_floor=70.0, f0_ceil=900.0, frame_period=5.0)
+    f0 = pw.stonemask(x, f0, t, SR)
     voiced = f0 > 0
     a['voiced_fraction'] = round(float(voiced.mean()), 2)
     a['median_f0_hz'] = round(float(np.median(f0[voiced])), 1) if voiced.any() else 0
@@ -312,7 +317,7 @@ def run(vocal_path, beat_path, out_dir, direction, forced_key, verb_path):
     checks['clipped_after'] = int(np.sum(np.abs(after_m) >= 0.999))
     checks['length_equal'] = bool(before_m.shape == after_m.shape == (2, n))
     seg = slice(0, min(n, 20 * SR))
-    xc = np.correlate(dry_processed[seg] - dry_processed[seg].mean(), x[seg] - x[seg].mean(), 'full')
+    xc = fftconvolve(dry_processed[seg] - dry_processed[seg].mean(), (x[seg] - x[seg].mean())[::-1], 'full')
     lag = int(np.argmax(np.abs(xc)) - (len(x[seg]) - 1))
     checks['vocal_alignment_lag_samples'] = lag
     checks['vocal_alignment_ok'] = abs(lag) <= 64

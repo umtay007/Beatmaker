@@ -460,7 +460,7 @@ export async function showDecks(): Promise<void> {
       d.delay.delayTime.value = Math.min(2, beatLen(d) / d.rate / 2);
       d.echo.gain.setTargetAtTime(on ? 0.45 : 0, ctx.currentTime, 0.02);
       echoBtn.classList.toggle('dk-on', on);
-    } });
+    } }, 'Echo');
     // one knob: left of centre closes a low-pass, right opens a high-pass
     const filter = h('input', { class: 'dk-filter', type: 'range', min: '-1', max: '1', step: '0.01', value: '0', title: 'Filter: left muffles, right thins, centre is off (double-click to reset)', oninput: () => {
       const v = Number(filter.value);

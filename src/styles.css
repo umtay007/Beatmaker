@@ -2099,3 +2099,16 @@ button {
 .dk-levels { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 14px; font-size: 11px; color: var(--muted); }
 .dk-levels label { display: flex; flex-direction: column; align-items: center; }
 .dk-levels input { width: 96px; }
+
+/* Vocal engineer */
+.ve { display: flex; flex-direction: column; gap: 12px; }
+.modal.wide:has(.ve) { width: min(860px, 94vw); }
+.ve-row, .ve-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ve-note, .ve-status { color: var(--muted); font-size: 13px; margin: 0; }
+.ve-select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: var(--radius-sm); padding: 6px 8px; font: inherit; }
+.ve-players { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ve-players label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ve-players audio { width: 100%; }
+.ve-report { font-size: 13px; line-height: 1.5; max-height: 38vh; overflow: auto; }
+.ve-report h4 { margin: 10px 0 4px; }
+.ve-report ol { margin: 0; padding-left: 20px; }
