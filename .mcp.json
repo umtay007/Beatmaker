@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pluginhost": {
+      "command": "E:/beatmaker/tools/pluginhost/venv/Scripts/python.exe",
+      "args": ["desktop/vst/pluginhost_mcp.py"]
+    }
+  }
+}

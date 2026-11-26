@@ -24,7 +24,7 @@ import torch
 from scipy.ndimage import median_filter
 
 SR, N, HOP, F_LO, PER_OCT, NB = 22050, 2048, 512, 40.0, 24, 192
-LOW, HIGH = 36, 96  # pitches considered (C2..C7)
+LOW, HIGH = 36, 96  # pitches considered (C2..C7); a third and fourth argument change them (a bass: 24 60)
 NHARM = 16
 KINDS = 2
 # a note is on where it reaches this much of the frame's loudest pitch and of the song's loudest, and stays on
@@ -161,6 +161,9 @@ def kinds_of(notes, A, As):
 
 def main():
     import librosa
+    global LOW, HIGH
+    if len(sys.argv) > 4:
+        LOW, HIGH = int(sys.argv[3]), int(sys.argv[4])
     x, _ = librosa.load(sys.argv[1], sr=SR, mono=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     a, H, pitches = fit(spectrogram(x), device, 800 if device == 'cuda' else 300)
