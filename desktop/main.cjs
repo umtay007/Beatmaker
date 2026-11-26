@@ -8,7 +8,8 @@
  *   recording for a synth stand-in, and after the first time it all works offline.
  * - The page is cross-origin isolated, so the models can use every CPU core.
  */
-const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell, Menu, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell, Menu, powerSaveBlocker, safeStorage } = require('electron');
+const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = fs.promises;
@@ -522,6 +523,114 @@ ipcMain.handle('vocal-engineer', async (_e, job) => {
     return { error: String(e && e.message) };
   } finally {
     void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+// Spotify: login in the user's own browser (Authorization Code with PKCE, no client secret), library and playlist
+// reading, and playback control of the user's Spotify devices. Tokens stay here, encrypted on disk with the
+// operating system's key store; the page only ever gets API results. Spotify audio is never fetched or captured.
+const SPOTIFY_REDIRECT = 'http://127.0.0.1:8888/callback';
+const SPOTIFY_SCOPES = 'playlist-read-private user-library-read user-read-playback-state user-modify-playback-state';
+const spotifyIdFile = () => path.join(app.getPath('userData'), 'spotify-client.txt');
+const spotifyTokenFile = () => path.join(app.getPath('userData'), 'spotify-token.bin');
+const spotifyClientId = () => {
+  try {
+    return fs.readFileSync(spotifyIdFile(), 'utf8').trim();
+  } catch {
+    return '';
+  }
+};
+function spotifyTokens() {
+  try {
+    return JSON.parse(safeStorage.decryptString(fs.readFileSync(spotifyTokenFile())));
+  } catch {
+    return null;
+  }
+}
+function spotifySave(t) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('This computer cannot encrypt the login, so it is not kept');
+  fs.writeFileSync(spotifyTokenFile(), safeStorage.encryptString(JSON.stringify(t)));
+}
+async function spotifyToken(params) {
+  const r = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(j.error_description || j.error || 'Spotify refused the login (' + r.status + ')');
+  return j;
+}
+/** A valid access token, refreshed when it is about to run out. */
+async function spotifyAccess() {
+  const t = spotifyTokens();
+  if (!t) return null;
+  if (Date.now() < t.expires - 60000) return t.access;
+  const j = await spotifyToken({ grant_type: 'refresh_token', refresh_token: t.refresh, client_id: spotifyClientId() });
+  spotifySave({ access: j.access_token, refresh: j.refresh_token || t.refresh, expires: Date.now() + j.expires_in * 1000 });
+  return j.access_token;
+}
+ipcMain.handle('spotify-status', () => ({ clientId: !!spotifyClientId(), loggedIn: !!spotifyTokens(), redirect: SPOTIFY_REDIRECT }));
+ipcMain.handle('spotify-set-client', (_e, id) => {
+  if (!/^[0-9a-f]{32}$/.test(String(id))) return { error: 'A Spotify Client ID is 32 letters and digits' };
+  fs.writeFileSync(spotifyIdFile(), String(id));
+  return {};
+});
+ipcMain.handle('spotify-logout', () => {
+  try {
+    fs.unlinkSync(spotifyTokenFile());
+  } catch {
+    /* was not logged in */
+  }
+  return {};
+});
+ipcMain.handle('spotify-login', async () => {
+  const clientId = spotifyClientId();
+  if (!clientId) return { error: 'No Client ID set' };
+  const verifier = crypto.randomBytes(48).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  const state = crypto.randomBytes(16).toString('hex');
+  try {
+    const code = await new Promise((resolve, reject) => {
+      const server = http.createServer((req, res) => {
+        const u = new URL(req.url, SPOTIFY_REDIRECT);
+        if (u.pathname !== '/callback') return void res.writeHead(404).end();
+        const ok = u.searchParams.get('state') === state && u.searchParams.get('code');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(ok ? '<p>Connected. You can close this tab and go back to Beatmaker.</p>' : '<p>The login did not complete. You can close this tab.</p>');
+        server.close();
+        clearTimeout(timer);
+        if (ok) resolve(u.searchParams.get('code'));
+        else reject(new Error(u.searchParams.get('error') === 'access_denied' ? 'You declined the login' : 'The login came back wrong (state mismatch or no code)'));
+      });
+      const timer = setTimeout(() => (server.close(), reject(new Error('No login within 3 minutes'))), 180000);
+      server.on('error', (e) => (clearTimeout(timer), reject(new Error('Could not listen on 127.0.0.1:8888 (' + e.code + ')'))));
+      server.listen(8888, '127.0.0.1', () => {
+        const q = new URLSearchParams({ client_id: clientId, response_type: 'code', redirect_uri: SPOTIFY_REDIRECT, state, scope: SPOTIFY_SCOPES, code_challenge_method: 'S256', code_challenge: challenge });
+        void shell.openExternal('https://accounts.spotify.com/authorize?' + q);
+      });
+    });
+    const j = await spotifyToken({ grant_type: 'authorization_code', code, redirect_uri: SPOTIFY_REDIRECT, client_id: clientId, code_verifier: verifier });
+    spotifySave({ access: j.access_token, refresh: j.refresh_token, expires: Date.now() + j.expires_in * 1000 });
+    return {};
+  } catch (e) {
+    return { error: String(e && e.message) };
+  }
+});
+/** One Web API call for the page: only the endpoints this app uses, only on api.spotify.com. */
+ipcMain.handle('spotify-api', async (_e, method, apiPath, body) => {
+  const allowed = [['GET', '/me'], ['GET', '/me/playlists'], ['GET', '/playlists/'], ['GET', '/me/player'], ['GET', '/me/player/devices'], ['PUT', '/me/player/play'], ['PUT', '/me/player/pause'], ['POST', '/me/player/next'], ['POST', '/me/player/previous'], ['PUT', '/me/player']];
+  const bare = String(apiPath).split('?')[0];
+  if (!allowed.some(([m, p]) => m === method && (p.endsWith('/') ? bare.startsWith(p) : bare === p))) return { error: 'Not an endpoint this app uses' };
+  try {
+    const token = await spotifyAccess();
+    if (!token) return { error: 'Not logged in', status: 401 };
+    const r = await fetch('https://api.spotify.com/v1' + apiPath, { method, headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const text = await r.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      /* no body */
+    }
+    return r.ok ? { data, status: r.status } : { error: (data && data.error && data.error.message) || 'Spotify said ' + r.status, status: r.status };
+  } catch (e) {
+    return { error: String(e && e.message) };
   }
 });
 

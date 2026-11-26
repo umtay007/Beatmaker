@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   earsScore: (refs, cands) => ipcRenderer.invoke('ears-score', refs, cands),
   devocalReady: () => ipcRenderer.invoke('devocal-ready'),
   beatsReady: () => ipcRenderer.invoke('beats-ready'),
+  spotify: {
+    status: () => ipcRenderer.invoke('spotify-status'),
+    setClient: (id) => ipcRenderer.invoke('spotify-set-client', id),
+    login: () => ipcRenderer.invoke('spotify-login'),
+    logout: () => ipcRenderer.invoke('spotify-logout'),
+    api: (method, path, body) => ipcRenderer.invoke('spotify-api', method, path, body),
+  },
   vocalEngineer: (job) => ipcRenderer.invoke('vocal-engineer', job),
   stem2Send: (job) => ipcRenderer.invoke('stem2-send', job),
   beatsRun: (wav) => ipcRenderer.invoke('beats-run', wav),

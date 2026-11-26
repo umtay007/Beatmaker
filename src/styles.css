@@ -2112,3 +2112,15 @@ button {
 .ve-report { font-size: 13px; line-height: 1.5; max-height: 38vh; overflow: auto; }
 .ve-report h4 { margin: 10px 0 4px; }
 .ve-report ol { margin: 0; padding-left: 20px; }
+
+/* Spotify */
+.sp { display: flex; flex-direction: column; gap: 12px; }
+.sp-note { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 0; }
+.sp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sp-cols { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; min-height: 240px; }
+.sp-list { max-height: 44vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.sp-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--line); }
+.sp-item:hover { background: var(--raised); }
+.sp-item small { color: var(--muted); white-space: nowrap; }
+.sp-input { flex: 1; background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: var(--radius-sm); padding: 7px 9px; font: inherit; }
+.modal.wide:has(.sp) { width: min(900px, 94vw); }

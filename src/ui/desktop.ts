@@ -54,6 +54,14 @@ export interface DesktopApi {
     processed?: Uint8Array;
     error?: string;
   }>;
+  /** Spotify: login in the browser, then library, playlists and control of Spotify's own playback. No audio passes through. */
+  spotify: {
+    status(): Promise<{ clientId: boolean; loggedIn: boolean; redirect: string }>;
+    setClient(id: string): Promise<{ error?: string }>;
+    login(): Promise<{ error?: string }>;
+    logout(): Promise<unknown>;
+    api<T = unknown>(method: 'GET' | 'PUT' | 'POST', path: string, body?: unknown): Promise<{ data?: T; status?: number; error?: string }>;
+  };
   /** Whether YourMT3+ is set up (--ymt3 <folder>). */
   ymt3Ready(): Promise<boolean>;
   /** Transcribe a WAV of a stem with YourMT3+: notes by General MIDI program, in seconds from its start. */

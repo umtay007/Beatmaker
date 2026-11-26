@@ -26,6 +26,7 @@ import { desktop } from './ui/desktop';
 import { showRemake } from './ui/remakeui';
 import { showDecks } from './ui/decks';
 import { showVocalEngineer } from './ui/vocalengineer';
+import { matchLocal, showSpotify } from './ui/spotifyui';
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -274,4 +275,4 @@ if (app_) {
 }
 
 // Expose for debugging / automated tests.
-(window as unknown as Record<string, unknown>).beatmaker = { showDecks, showVocalEngineer: () => showVocalEngineer(store, actions.palette()), store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, partScore, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches, ltas, TONE_BANDS, fitTone };
+(window as unknown as Record<string, unknown>).beatmaker = { showDecks, showSpotify, matchLocal, showVocalEngineer: () => showVocalEngineer(store, actions.palette()), store, engine, player, actions, editor, separateStems, transcribeLyrics, compareRemake, partScore, findInstrument, spectrogram, resampled, mono, clampFloor, renderSong, activations, extractNotes, toModelRate, transcribePitches, ltas, TONE_BANDS, fitTone };
