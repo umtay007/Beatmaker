@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('beatmakerDesktop', {
   stem2Send: (job) => ipcRenderer.invoke('stem2-send', job),
   beatsRun: (wav) => ipcRenderer.invoke('beats-run', wav),
   resynthRun: (wav) => ipcRenderer.invoke('resynth-run', wav),
+  fitSound: () => ipcRenderer.invoke('fitsound-get'),
+  fitSoundRender: (fit) => ipcRenderer.invoke('fitsound-render', fit),
   stemClean: (stem, vocals, bpm, offset) => ipcRenderer.invoke('stem-clean', stem, vocals, bpm, offset),
   devocalRun: (wav) => ipcRenderer.invoke('devocal-run', wav),
   ymt3Ready: () => ipcRenderer.invoke('ymt3-ready'),

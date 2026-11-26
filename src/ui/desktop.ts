@@ -44,6 +44,10 @@ export interface DesktopApi {
   beatsReady(): Promise<boolean>;
   /** Beats and downbeats of a song (WAV bytes), in seconds. */
   beatsRun(wav: Uint8Array): Promise<{ beats?: number[]; downbeats?: number[]; error?: string }>;
+  /** The plugin preset set for the chords (--fit-plugin, --fit-preset), if any. */
+  fitSound(): Promise<{ name: string; plugin: string } | null>;
+  /** Notes read from a recording (resynth's, times in seconds from the start of the render) played with that preset: WAV bytes. */
+  fitSoundRender(fit: { step: number; notes: [number, number, number, number, number, number[]][] }): Promise<{ wav?: Uint8Array; error?: string }>;
   /** A melodic part (WAV bytes) read as notes on sounds fitted to it: notes are [pitch, start s, end s, level 0..1, kind, the note's own level curve]. */
   resynthRun(wav: Uint8Array): Promise<{ step?: number; harmonics?: number[]; kinds?: { envelope: number[]; notes: number }[]; notes?: [number, number, number, number, number, number[]][]; error?: string }>;
   /** Package four parts as a Stem2 track and, if the speaker is plugged in as a USB drive, copy it on (a new folder only). */

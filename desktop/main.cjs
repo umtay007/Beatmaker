@@ -75,6 +75,8 @@ function parseArgs(argv) {
   let kits = null;
   let ymt3 = null;
   let sep = null;
+  let fitPlugin = null;
+  let fitPreset = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--all-instruments') options.thorough = true;
@@ -95,11 +97,13 @@ function parseArgs(argv) {
     else if (a === '--kits') kits = argv[++i] ?? null;
     else if (a === '--ymt3') ymt3 = argv[++i] ?? null;
     else if (a === '--sep') sep = argv[++i] ?? null;
+    else if (a === '--fit-plugin') fitPlugin = argv[++i] ?? null; // with --fit-preset: the plugin sound the chords are played with
+    else if (a === '--fit-preset') fitPreset = argv[++i] ?? null;
     else if (a === '--out') out = argv[++i] ?? null;
     else if (a.startsWith('--out=')) out = a.slice(6);
     else if (!a.startsWith('-') && AUDIO.test(a) && fs.existsSync(a)) songs.push(path.resolve(a));
   }
-  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits, ymt3, sep };
+  return { songs, options, out, quit, pick: pick && { roles: pick.split(',').filter(Boolean), plugin, noWindow }, kits, ymt3, sep, fitPlugin, fitPreset };
 }
 
 // The first entries are the program (and the app folder when run as `electron .`).
@@ -461,6 +465,42 @@ ipcMain.handle('resynth-run', async (_e, wav) => {
     const r = await run(path.join(root, 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'resynth.py'), input, out], { spawn: { env } });
     if (r.code !== 0 || !fs.existsSync(out)) return { error: 'It failed: ' + r.out.trim().slice(-200) };
     return JSON.parse(await fsp.readFile(out, 'utf8'));
+  } catch (e) {
+    return { error: String(e && e.message) };
+  } finally {
+    void fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+// A plugin preset for the chords (vst/vstfit.py): `--fit-plugin <plugin.vst3> --fit-preset <preset>`, remembered
+// (`--fit-preset none` forgets it). The notes read from the original, each with its own level curve, are played
+// with that preset.
+const fitSoundFile = () => path.join(app.getPath('userData'), 'fit-sound.json');
+function fitSound() {
+  try {
+    const s = JSON.parse(fs.readFileSync(fitSoundFile(), 'utf8'));
+    return sepRoot() && fs.existsSync(s.plugin) && fs.existsSync(s.preset) ? s : null;
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('fitsound-get', () => {
+  const s = fitSound();
+  return s ? { name: path.parse(s.preset).name, plugin: path.parse(s.plugin).name } : null;
+});
+/** { step, notes } (resynth's, times in seconds from the start of the render) → { wav } or { error }. */
+ipcMain.handle('fitsound-render', async (_e, fit) => {
+  const s = fitSound();
+  if (!s) return { error: 'No plugin sound is set' };
+  const tmp = await fsp.mkdtemp(path.join(app.getPath('temp'), 'beatmaker-fitsound-'));
+  try {
+    const input = path.join(tmp, 'fit.json');
+    const out = path.join(tmp, 'out.wav');
+    await fsp.writeFile(input, JSON.stringify(fit));
+    const env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+    const r = await run(path.join(sepRoot(), 'venv', 'Scripts', 'python.exe'), [path.join(path.dirname(vstScript()), 'vstfit.py'), 'render', s.plugin, s.preset, input, out], { spawn: { env } });
+    if (r.code !== 0 || !fs.existsSync(out)) return { error: 'It failed: ' + r.out.trim().slice(-200) };
+    return { wav: new Uint8Array(await fsp.readFile(out)) };
   } catch (e) {
     return { error: String(e && e.message) };
   } finally {
@@ -1058,6 +1098,8 @@ if (!app.requestSingleInstanceLock()) {
     if (cli.kits) fs.writeFileSync(kitsFile(), path.resolve(cli.kits));
     if (cli.ymt3) fs.writeFileSync(ymt3File(), path.resolve(cli.ymt3));
     if (cli.sep) fs.writeFileSync(sepFile(), path.resolve(cli.sep));
+    if (cli.fitPlugin && cli.fitPreset) fs.writeFileSync(fitSoundFile(), JSON.stringify({ plugin: path.resolve(cli.fitPlugin), preset: path.resolve(cli.fitPreset) }));
+    else if (cli.fitPreset === 'none') fs.rmSync(fitSoundFile(), { force: true });
     if (cli.pick) {
       void pickSound(cli.pick).finally(() => app.quit());
       return;
